@@ -1,0 +1,105 @@
+{
+  "dataset_name": "sales_ops_agent_pack",
+  "examples": [
+    {
+      "example_id": "sales-research-1",
+      "workload_class": "long_context",
+      "model": "model1",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Read the following long sales notes and summarize risks, next steps, and decision blockers. Prospect asked about pricing, security review, SSO support, contract flexibility, data residency, and procurement timing. They also need a side-by-side comparison with their current vendor and want rollout sequencing across three internal teams. Please produce a concise operational summary with the most important blockers first."
+        }
+      ],
+      "latency_budget_ms": 1400,
+      "max_cost_usd": 0.02
+    },
+    {
+      "example_id": "sales-agent-tool-1",
+      "workload_class": "tool_use",
+      "model": "model1",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Use the lookup_account_plan tool for Acme Corp and then suggest a renewal strategy."
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "lookup_account_plan",
+            "description": "Fetch account plan and renewal data",
+            "parameters": {
+              "type": "object"
+            }
+          }
+        }
+      ],
+      "provider": {
+        "require_capabilities": [
+          "tool_calling"
+        ]
+      },
+      "latency_budget_ms": 1200,
+      "max_cost_usd": 0.018
+    },
+    {
+      "example_id": "sales-structured-1",
+      "workload_class": "structured_extraction",
+      "model": "model1",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Extract stakeholder, buying stage, budget confidence, and close probability from this pipeline note."
+        }
+      ],
+      "response_format": {
+        "type": "json_schema",
+        "json_schema": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "stakeholder": { "type": "string" },
+              "buying_stage": { "type": "string" },
+              "budget_confidence": { "type": "integer" },
+              "close_probability": { "type": "number" }
+            },
+            "required": ["stakeholder", "buying_stage", "budget_confidence", "close_probability"]
+          }
+        }
+      },
+      "latency_budget_ms": 1000,
+      "max_cost_usd": 0.012
+    },
+    {
+      "example_id": "sales-vision-1",
+      "workload_class": "multimodal_vision",
+      "model": "router/auto",
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "Read this dashboard screenshot and summarize the top 2 changes in pipeline coverage."
+            },
+            {
+              "type": "image_url",
+              "image_url": {
+                "url": "https://example.com/fake-dashboard.png"
+              }
+            }
+          ]
+        }
+      ],
+      "provider": {
+        "require_capabilities": [
+          "multimodal"
+        ]
+      },
+      "latency_budget_ms": 1600,
+      "max_cost_usd": 0.025
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Environment
+.env
+.env.local
+
+# Logs & PIDs
+*.log
+*.pid
+
+# OS
+.DS_Store
+
+# Releases / build artifacts
+releases/
+
+# Databases
+*.db
+*.sqlite
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.next/
+.next/
+
+# IDE
+.idea/
+.vscode/

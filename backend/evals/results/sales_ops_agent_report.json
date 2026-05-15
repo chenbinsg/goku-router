@@ -1,0 +1,3282 @@
+{
+  "dataset_name": "sales_ops_agent_pack",
+  "strategies": [
+    "static_primary_backup",
+    "cheapest_provider",
+    "fastest_provider",
+    "openrouter_like_auto",
+    "current_production_policy"
+  ],
+  "baseline_strategy": "current_production_policy",
+  "summary": [
+    {
+      "strategy": "cheapest_provider",
+      "requests": 4,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.035,
+      "avg_total_cost": 0.0204,
+      "avg_score": 0.8662,
+      "score_delta_vs_baseline": 0.0,
+      "cost_delta_vs_baseline": -0.0097,
+      "latency_delta_vs_baseline": 0.01
+    },
+    {
+      "strategy": "current_production_policy",
+      "requests": 4,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.025,
+      "avg_total_cost": 0.0301,
+      "avg_score": 0.8662,
+      "score_delta_vs_baseline": 0.0,
+      "cost_delta_vs_baseline": 0.0,
+      "latency_delta_vs_baseline": 0.0
+    },
+    {
+      "strategy": "fastest_provider",
+      "requests": 4,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.026,
+      "avg_total_cost": 0.0301,
+      "avg_score": 0.8662,
+      "score_delta_vs_baseline": 0.0,
+      "cost_delta_vs_baseline": 0.0,
+      "latency_delta_vs_baseline": 0.001
+    },
+    {
+      "strategy": "openrouter_like_auto",
+      "requests": 4,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.026,
+      "avg_total_cost": 0.0204,
+      "avg_score": 0.8662,
+      "score_delta_vs_baseline": 0.0,
+      "cost_delta_vs_baseline": -0.0097,
+      "latency_delta_vs_baseline": 0.001
+    },
+    {
+      "strategy": "static_primary_backup",
+      "requests": 4,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.036,
+      "avg_total_cost": 0.0301,
+      "avg_score": 0.8662,
+      "score_delta_vs_baseline": 0.0,
+      "cost_delta_vs_baseline": 0.0,
+      "latency_delta_vs_baseline": 0.011
+    }
+  ],
+  "workload_summary": [
+    {
+      "workload_class": "long_context",
+      "strategy": "cheapest_provider",
+      "requests": 1,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.022,
+      "avg_total_cost": 0.0366,
+      "avg_score": 0.85
+    },
+    {
+      "workload_class": "long_context",
+      "strategy": "current_production_policy",
+      "requests": 1,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.019,
+      "avg_total_cost": 0.067,
+      "avg_score": 0.85
+    },
+    {
+      "workload_class": "long_context",
+      "strategy": "fastest_provider",
+      "requests": 1,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.022,
+      "avg_total_cost": 0.067,
+      "avg_score": 0.85
+    },
+    {
+      "workload_class": "long_context",
+      "strategy": "openrouter_like_auto",
+      "requests": 1,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.019,
+      "avg_total_cost": 0.0366,
+      "avg_score": 0.85
+    },
+    {
+      "workload_class": "long_context",
+      "strategy": "static_primary_backup",
+      "requests": 1,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.031,
+      "avg_total_cost": 0.067,
+      "avg_score": 0.85
+    },
+    {
+      "workload_class": "multimodal_vision",
+      "strategy": "cheapest_provider",
+      "requests": 1,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.035,
+      "avg_total_cost": 0.0164,
+      "avg_score": 0.9016
+    },
+    {
+      "workload_class": "multimodal_vision",
+      "strategy": "current_production_policy",
+      "requests": 1,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.016,
+      "avg_total_cost": 0.0164,
+      "avg_score": 0.9016
+    },
+    {
+      "workload_class": "multimodal_vision",
+      "strategy": "fastest_provider",
+      "requests": 1,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.016,
+      "avg_total_cost": 0.0164,
+      "avg_score": 0.9016
+    },
+    {
+      "workload_class": "multimodal_vision",
+      "strategy": "openrouter_like_auto",
+      "requests": 1,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.014,
+      "avg_total_cost": 0.0164,
+      "avg_score": 0.9016
+    },
+    {
+      "workload_class": "multimodal_vision",
+      "strategy": "static_primary_backup",
+      "requests": 1,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.018,
+      "avg_total_cost": 0.0164,
+      "avg_score": 0.9016
+    },
+    {
+      "workload_class": "structured_extraction",
+      "strategy": "cheapest_provider",
+      "requests": 1,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.056,
+      "avg_total_cost": 0.0122,
+      "avg_score": 0.85
+    },
+    {
+      "workload_class": "structured_extraction",
+      "strategy": "current_production_policy",
+      "requests": 1,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.041,
+      "avg_total_cost": 0.0206,
+      "avg_score": 0.85
+    },
+    {
+      "workload_class": "structured_extraction",
+      "strategy": "fastest_provider",
+      "requests": 1,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.041,
+      "avg_total_cost": 0.0206,
+      "avg_score": 0.85
+    },
+    {
+      "workload_class": "structured_extraction",
+      "strategy": "openrouter_like_auto",
+      "requests": 1,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.047,
+      "avg_total_cost": 0.0122,
+      "avg_score": 0.85
+    },
+    {
+      "workload_class": "structured_extraction",
+      "strategy": "static_primary_backup",
+      "requests": 1,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.061,
+      "avg_total_cost": 0.0206,
+      "avg_score": 0.85
+    },
+    {
+      "workload_class": "tool_use",
+      "strategy": "cheapest_provider",
+      "requests": 1,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.026,
+      "avg_total_cost": 0.0164,
+      "avg_score": 0.8633
+    },
+    {
+      "workload_class": "tool_use",
+      "strategy": "current_production_policy",
+      "requests": 1,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.023,
+      "avg_total_cost": 0.0164,
+      "avg_score": 0.8633
+    },
+    {
+      "workload_class": "tool_use",
+      "strategy": "fastest_provider",
+      "requests": 1,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.024,
+      "avg_total_cost": 0.0164,
+      "avg_score": 0.8633
+    },
+    {
+      "workload_class": "tool_use",
+      "strategy": "openrouter_like_auto",
+      "requests": 1,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.022,
+      "avg_total_cost": 0.0164,
+      "avg_score": 0.8633
+    },
+    {
+      "workload_class": "tool_use",
+      "strategy": "static_primary_backup",
+      "requests": 1,
+      "success_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "tool_success_rate": 1.0,
+      "avg_latency_ms": 0.032,
+      "avg_total_cost": 0.0164,
+      "avg_score": 0.8633
+    }
+  ],
+  "workload_winners": [
+    {
+      "workload_class": "long_context",
+      "winner_strategy": "openrouter_like_auto",
+      "winner_score": 0.85,
+      "winner_cost": 0.0366,
+      "winner_latency_ms": 0.019
+    },
+    {
+      "workload_class": "multimodal_vision",
+      "winner_strategy": "openrouter_like_auto",
+      "winner_score": 0.9016,
+      "winner_cost": 0.0164,
+      "winner_latency_ms": 0.014
+    },
+    {
+      "workload_class": "structured_extraction",
+      "winner_strategy": "openrouter_like_auto",
+      "winner_score": 0.85,
+      "winner_cost": 0.0122,
+      "winner_latency_ms": 0.047
+    },
+    {
+      "workload_class": "tool_use",
+      "winner_strategy": "openrouter_like_auto",
+      "winner_score": 0.8633,
+      "winner_cost": 0.0164,
+      "winner_latency_ms": 0.022
+    }
+  ],
+  "decision_highlights": [
+    {
+      "workload_class": "long_context",
+      "strategy": "static_primary_backup",
+      "selected_provider": "provider_primary",
+      "selected_model": "model1",
+      "compression_applied": false,
+      "top_candidates": [
+        {
+          "provider": "provider_primary",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-primary-model1",
+          "capabilities": [
+            "chat",
+            "multimodal",
+            "structured_output",
+            "tool_calling"
+          ],
+          "required_capabilities": [
+            "chat"
+          ],
+          "input_cost_per_1k": 0.4,
+          "output_cost_per_1k": 0.7,
+          "total_price_per_1k": 1.1,
+          "avg_latency_ms": 280.0,
+          "priority": 100,
+          "preferred_order_index": null,
+          "sort_key": [
+            100,
+            280.0,
+            1.1
+          ],
+          "accepted": true,
+          "reject_reason": null
+        },
+        {
+          "provider": "provider_backup",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-backup-model1",
+          "capabilities": [
+            "chat",
+            "structured_output"
+          ],
+          "required_capabilities": [
+            "chat"
+          ],
+          "input_cost_per_1k": 0.2,
+          "output_cost_per_1k": 0.4,
+          "total_price_per_1k": 0.6,
+          "avg_latency_ms": 360.0,
+          "priority": 200,
+          "preferred_order_index": null,
+          "sort_key": [
+            200,
+            360.0,
+            0.6000000000000001
+          ],
+          "accepted": true,
+          "reject_reason": null
+        }
+      ],
+      "rejected_candidates": []
+    },
+    {
+      "workload_class": "long_context",
+      "strategy": "cheapest_provider",
+      "selected_provider": "provider_backup",
+      "selected_model": "model1",
+      "compression_applied": false,
+      "top_candidates": [
+        {
+          "provider": "provider_primary",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-primary-model1",
+          "capabilities": [
+            "chat",
+            "multimodal",
+            "structured_output",
+            "tool_calling"
+          ],
+          "required_capabilities": [
+            "chat"
+          ],
+          "input_cost_per_1k": 0.4,
+          "output_cost_per_1k": 0.7,
+          "total_price_per_1k": 1.1,
+          "avg_latency_ms": 280.0,
+          "priority": 100,
+          "preferred_order_index": null,
+          "sort_key": [
+            1.1,
+            280.0,
+            100
+          ],
+          "accepted": true,
+          "reject_reason": null
+        },
+        {
+          "provider": "provider_backup",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-backup-model1",
+          "capabilities": [
+            "chat",
+            "structured_output"
+          ],
+          "required_capabilities": [
+            "chat"
+          ],
+          "input_cost_per_1k": 0.2,
+          "output_cost_per_1k": 0.4,
+          "total_price_per_1k": 0.6,
+          "avg_latency_ms": 360.0,
+          "priority": 200,
+          "preferred_order_index": null,
+          "sort_key": [
+            0.6000000000000001,
+            360.0,
+            200
+          ],
+          "accepted": true,
+          "reject_reason": null
+        }
+      ],
+      "rejected_candidates": []
+    },
+    {
+      "workload_class": "long_context",
+      "strategy": "fastest_provider",
+      "selected_provider": "provider_primary",
+      "selected_model": "model1",
+      "compression_applied": false,
+      "top_candidates": [
+        {
+          "provider": "provider_primary",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-primary-model1",
+          "capabilities": [
+            "chat",
+            "multimodal",
+            "structured_output",
+            "tool_calling"
+          ],
+          "required_capabilities": [
+            "chat"
+          ],
+          "input_cost_per_1k": 0.4,
+          "output_cost_per_1k": 0.7,
+          "total_price_per_1k": 1.1,
+          "avg_latency_ms": 280.0,
+          "priority": 100,
+          "preferred_order_index": null,
+          "sort_key": [
+            280.0,
+            1.1,
+            100
+          ],
+          "accepted": true,
+          "reject_reason": null
+        },
+        {
+          "provider": "provider_backup",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-backup-model1",
+          "capabilities": [
+            "chat",
+            "structured_output"
+          ],
+          "required_capabilities": [
+            "chat"
+          ],
+          "input_cost_per_1k": 0.2,
+          "output_cost_per_1k": 0.4,
+          "total_price_per_1k": 0.6,
+          "avg_latency_ms": 360.0,
+          "priority": 200,
+          "preferred_order_index": null,
+          "sort_key": [
+            360.0,
+            0.6000000000000001,
+            200
+          ],
+          "accepted": true,
+          "reject_reason": null
+        }
+      ],
+      "rejected_candidates": []
+    },
+    {
+      "workload_class": "long_context",
+      "strategy": "openrouter_like_auto",
+      "selected_provider": "provider_backup",
+      "selected_model": "model1",
+      "compression_applied": false,
+      "top_candidates": [
+        {
+          "provider": "provider_primary",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-primary-model1",
+          "capabilities": [
+            "chat",
+            "multimodal",
+            "structured_output",
+            "tool_calling"
+          ],
+          "required_capabilities": [
+            "chat"
+          ],
+          "input_cost_per_1k": 0.4,
+          "output_cost_per_1k": 0.7,
+          "total_price_per_1k": 1.1,
+          "avg_latency_ms": 280.0,
+          "priority": 100,
+          "preferred_order_index": null,
+          "sort_key": [
+            1.4800000000000002,
+            100
+          ],
+          "accepted": true,
+          "reject_reason": null
+        },
+        {
+          "provider": "provider_backup",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-backup-model1",
+          "capabilities": [
+            "chat",
+            "structured_output"
+          ],
+          "required_capabilities": [
+            "chat"
+          ],
+          "input_cost_per_1k": 0.2,
+          "output_cost_per_1k": 0.4,
+          "total_price_per_1k": 0.6,
+          "avg_latency_ms": 360.0,
+          "priority": 200,
+          "preferred_order_index": null,
+          "sort_key": [
+            1.1600000000000001,
+            200
+          ],
+          "accepted": true,
+          "reject_reason": null
+        }
+      ],
+      "rejected_candidates": []
+    },
+    {
+      "workload_class": "long_context",
+      "strategy": "current_production_policy",
+      "selected_provider": "provider_backup",
+      "selected_model": "model1",
+      "compression_applied": false,
+      "top_candidates": [
+        {
+          "provider": "provider_primary",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-primary-model1",
+          "capabilities": [
+            "chat",
+            "multimodal",
+            "structured_output",
+            "tool_calling"
+          ],
+          "required_capabilities": [
+            "chat"
+          ],
+          "input_cost_per_1k": 0.4,
+          "output_cost_per_1k": 0.7,
+          "total_price_per_1k": 1.1,
+          "avg_latency_ms": 280.0,
+          "priority": 100,
+          "preferred_order_index": null,
+          "sort_key": [
+            1.4800000000000002,
+            100
+          ],
+          "accepted": true,
+          "reject_reason": null
+        },
+        {
+          "provider": "provider_backup",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-backup-model1",
+          "capabilities": [
+            "chat",
+            "structured_output"
+          ],
+          "required_capabilities": [
+            "chat"
+          ],
+          "input_cost_per_1k": 0.2,
+          "output_cost_per_1k": 0.4,
+          "total_price_per_1k": 0.6,
+          "avg_latency_ms": 360.0,
+          "priority": 200,
+          "preferred_order_index": null,
+          "sort_key": [
+            1.1600000000000001,
+            200
+          ],
+          "accepted": true,
+          "reject_reason": null
+        }
+      ],
+      "rejected_candidates": []
+    },
+    {
+      "workload_class": "tool_use",
+      "strategy": "static_primary_backup",
+      "selected_provider": "provider_primary",
+      "selected_model": "model1",
+      "compression_applied": false,
+      "top_candidates": [
+        {
+          "provider": "provider_primary",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-primary-model1",
+          "capabilities": [
+            "chat",
+            "multimodal",
+            "structured_output",
+            "tool_calling"
+          ],
+          "required_capabilities": [
+            "chat",
+            "tool_calling"
+          ],
+          "input_cost_per_1k": 0.4,
+          "output_cost_per_1k": 0.7,
+          "total_price_per_1k": 1.1,
+          "avg_latency_ms": 280.0,
+          "priority": 100,
+          "preferred_order_index": null,
+          "sort_key": [
+            100,
+            280.0,
+            1.1
+          ],
+          "accepted": true,
+          "reject_reason": null
+        }
+      ],
+      "rejected_candidates": [
+        {
+          "provider": "provider_backup",
+          "reject_reason": "missing_required_capabilities"
+        }
+      ]
+    },
+    {
+      "workload_class": "tool_use",
+      "strategy": "cheapest_provider",
+      "selected_provider": "provider_primary",
+      "selected_model": "model1",
+      "compression_applied": false,
+      "top_candidates": [
+        {
+          "provider": "provider_primary",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-primary-model1",
+          "capabilities": [
+            "chat",
+            "multimodal",
+            "structured_output",
+            "tool_calling"
+          ],
+          "required_capabilities": [
+            "chat",
+            "tool_calling"
+          ],
+          "input_cost_per_1k": 0.4,
+          "output_cost_per_1k": 0.7,
+          "total_price_per_1k": 1.1,
+          "avg_latency_ms": 280.0,
+          "priority": 100,
+          "preferred_order_index": null,
+          "sort_key": [
+            1.1,
+            280.0,
+            100
+          ],
+          "accepted": true,
+          "reject_reason": null
+        }
+      ],
+      "rejected_candidates": [
+        {
+          "provider": "provider_backup",
+          "reject_reason": "missing_required_capabilities"
+        }
+      ]
+    },
+    {
+      "workload_class": "tool_use",
+      "strategy": "fastest_provider",
+      "selected_provider": "provider_primary",
+      "selected_model": "model1",
+      "compression_applied": false,
+      "top_candidates": [
+        {
+          "provider": "provider_primary",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-primary-model1",
+          "capabilities": [
+            "chat",
+            "multimodal",
+            "structured_output",
+            "tool_calling"
+          ],
+          "required_capabilities": [
+            "chat",
+            "tool_calling"
+          ],
+          "input_cost_per_1k": 0.4,
+          "output_cost_per_1k": 0.7,
+          "total_price_per_1k": 1.1,
+          "avg_latency_ms": 280.0,
+          "priority": 100,
+          "preferred_order_index": null,
+          "sort_key": [
+            280.0,
+            1.1,
+            100
+          ],
+          "accepted": true,
+          "reject_reason": null
+        }
+      ],
+      "rejected_candidates": [
+        {
+          "provider": "provider_backup",
+          "reject_reason": "missing_required_capabilities"
+        }
+      ]
+    },
+    {
+      "workload_class": "tool_use",
+      "strategy": "openrouter_like_auto",
+      "selected_provider": "provider_primary",
+      "selected_model": "model1",
+      "compression_applied": false,
+      "top_candidates": [
+        {
+          "provider": "provider_primary",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-primary-model1",
+          "capabilities": [
+            "chat",
+            "multimodal",
+            "structured_output",
+            "tool_calling"
+          ],
+          "required_capabilities": [
+            "chat",
+            "tool_calling"
+          ],
+          "input_cost_per_1k": 0.4,
+          "output_cost_per_1k": 0.7,
+          "total_price_per_1k": 1.1,
+          "avg_latency_ms": 280.0,
+          "priority": 100,
+          "preferred_order_index": null,
+          "sort_key": [
+            1.4800000000000002,
+            100
+          ],
+          "accepted": true,
+          "reject_reason": null
+        }
+      ],
+      "rejected_candidates": [
+        {
+          "provider": "provider_backup",
+          "reject_reason": "missing_required_capabilities"
+        },
+        {
+          "provider": "provider_backup",
+          "reject_reason": "missing_required_capabilities"
+        }
+      ]
+    },
+    {
+      "workload_class": "tool_use",
+      "strategy": "current_production_policy",
+      "selected_provider": "provider_primary",
+      "selected_model": "model1",
+      "compression_applied": false,
+      "top_candidates": [
+        {
+          "provider": "provider_primary",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-primary-model1",
+          "capabilities": [
+            "chat",
+            "multimodal",
+            "structured_output",
+            "tool_calling"
+          ],
+          "required_capabilities": [
+            "chat",
+            "tool_calling"
+          ],
+          "input_cost_per_1k": 0.4,
+          "output_cost_per_1k": 0.7,
+          "total_price_per_1k": 1.1,
+          "avg_latency_ms": 280.0,
+          "priority": 100,
+          "preferred_order_index": null,
+          "sort_key": [
+            1.4800000000000002,
+            100
+          ],
+          "accepted": true,
+          "reject_reason": null
+        }
+      ],
+      "rejected_candidates": [
+        {
+          "provider": "provider_backup",
+          "reject_reason": "missing_required_capabilities"
+        }
+      ]
+    },
+    {
+      "workload_class": "structured_extraction",
+      "strategy": "static_primary_backup",
+      "selected_provider": "provider_primary",
+      "selected_model": "model1",
+      "compression_applied": false,
+      "top_candidates": [
+        {
+          "provider": "provider_primary",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-primary-model1",
+          "capabilities": [
+            "chat",
+            "multimodal",
+            "structured_output",
+            "tool_calling"
+          ],
+          "required_capabilities": [
+            "chat",
+            "structured_output"
+          ],
+          "input_cost_per_1k": 0.4,
+          "output_cost_per_1k": 0.7,
+          "total_price_per_1k": 1.1,
+          "avg_latency_ms": 280.0,
+          "priority": 100,
+          "preferred_order_index": null,
+          "sort_key": [
+            100,
+            280.0,
+            1.1
+          ],
+          "accepted": true,
+          "reject_reason": null
+        },
+        {
+          "provider": "provider_backup",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-backup-model1",
+          "capabilities": [
+            "chat",
+            "structured_output"
+          ],
+          "required_capabilities": [
+            "chat",
+            "structured_output"
+          ],
+          "input_cost_per_1k": 0.2,
+          "output_cost_per_1k": 0.4,
+          "total_price_per_1k": 0.6,
+          "avg_latency_ms": 360.0,
+          "priority": 200,
+          "preferred_order_index": null,
+          "sort_key": [
+            200,
+            360.0,
+            0.6000000000000001
+          ],
+          "accepted": true,
+          "reject_reason": null
+        }
+      ],
+      "rejected_candidates": []
+    },
+    {
+      "workload_class": "structured_extraction",
+      "strategy": "cheapest_provider",
+      "selected_provider": "provider_backup",
+      "selected_model": "model1",
+      "compression_applied": false,
+      "top_candidates": [
+        {
+          "provider": "provider_primary",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-primary-model1",
+          "capabilities": [
+            "chat",
+            "multimodal",
+            "structured_output",
+            "tool_calling"
+          ],
+          "required_capabilities": [
+            "chat",
+            "structured_output"
+          ],
+          "input_cost_per_1k": 0.4,
+          "output_cost_per_1k": 0.7,
+          "total_price_per_1k": 1.1,
+          "avg_latency_ms": 280.0,
+          "priority": 100,
+          "preferred_order_index": null,
+          "sort_key": [
+            1.1,
+            280.0,
+            100
+          ],
+          "accepted": true,
+          "reject_reason": null
+        },
+        {
+          "provider": "provider_backup",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-backup-model1",
+          "capabilities": [
+            "chat",
+            "structured_output"
+          ],
+          "required_capabilities": [
+            "chat",
+            "structured_output"
+          ],
+          "input_cost_per_1k": 0.2,
+          "output_cost_per_1k": 0.4,
+          "total_price_per_1k": 0.6,
+          "avg_latency_ms": 360.0,
+          "priority": 200,
+          "preferred_order_index": null,
+          "sort_key": [
+            0.6000000000000001,
+            360.0,
+            200
+          ],
+          "accepted": true,
+          "reject_reason": null
+        }
+      ],
+      "rejected_candidates": []
+    },
+    {
+      "workload_class": "structured_extraction",
+      "strategy": "fastest_provider",
+      "selected_provider": "provider_primary",
+      "selected_model": "model1",
+      "compression_applied": false,
+      "top_candidates": [
+        {
+          "provider": "provider_primary",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-primary-model1",
+          "capabilities": [
+            "chat",
+            "multimodal",
+            "structured_output",
+            "tool_calling"
+          ],
+          "required_capabilities": [
+            "chat",
+            "structured_output"
+          ],
+          "input_cost_per_1k": 0.4,
+          "output_cost_per_1k": 0.7,
+          "total_price_per_1k": 1.1,
+          "avg_latency_ms": 280.0,
+          "priority": 100,
+          "preferred_order_index": null,
+          "sort_key": [
+            280.0,
+            1.1,
+            100
+          ],
+          "accepted": true,
+          "reject_reason": null
+        },
+        {
+          "provider": "provider_backup",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-backup-model1",
+          "capabilities": [
+            "chat",
+            "structured_output"
+          ],
+          "required_capabilities": [
+            "chat",
+            "structured_output"
+          ],
+          "input_cost_per_1k": 0.2,
+          "output_cost_per_1k": 0.4,
+          "total_price_per_1k": 0.6,
+          "avg_latency_ms": 360.0,
+          "priority": 200,
+          "preferred_order_index": null,
+          "sort_key": [
+            360.0,
+            0.6000000000000001,
+            200
+          ],
+          "accepted": true,
+          "reject_reason": null
+        }
+      ],
+      "rejected_candidates": []
+    },
+    {
+      "workload_class": "structured_extraction",
+      "strategy": "openrouter_like_auto",
+      "selected_provider": "provider_backup",
+      "selected_model": "model1",
+      "compression_applied": false,
+      "top_candidates": [
+        {
+          "provider": "provider_primary",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-primary-model1",
+          "capabilities": [
+            "chat",
+            "multimodal",
+            "structured_output",
+            "tool_calling"
+          ],
+          "required_capabilities": [
+            "chat",
+            "structured_output"
+          ],
+          "input_cost_per_1k": 0.4,
+          "output_cost_per_1k": 0.7,
+          "total_price_per_1k": 1.1,
+          "avg_latency_ms": 280.0,
+          "priority": 100,
+          "preferred_order_index": null,
+          "sort_key": [
+            1.4800000000000002,
+            100
+          ],
+          "accepted": true,
+          "reject_reason": null
+        },
+        {
+          "provider": "provider_backup",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-backup-model1",
+          "capabilities": [
+            "chat",
+            "structured_output"
+          ],
+          "required_capabilities": [
+            "chat",
+            "structured_output"
+          ],
+          "input_cost_per_1k": 0.2,
+          "output_cost_per_1k": 0.4,
+          "total_price_per_1k": 0.6,
+          "avg_latency_ms": 360.0,
+          "priority": 200,
+          "preferred_order_index": null,
+          "sort_key": [
+            1.1600000000000001,
+            200
+          ],
+          "accepted": true,
+          "reject_reason": null
+        }
+      ],
+      "rejected_candidates": []
+    },
+    {
+      "workload_class": "structured_extraction",
+      "strategy": "current_production_policy",
+      "selected_provider": "provider_backup",
+      "selected_model": "model1",
+      "compression_applied": false,
+      "top_candidates": [
+        {
+          "provider": "provider_primary",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-primary-model1",
+          "capabilities": [
+            "chat",
+            "multimodal",
+            "structured_output",
+            "tool_calling"
+          ],
+          "required_capabilities": [
+            "chat",
+            "structured_output"
+          ],
+          "input_cost_per_1k": 0.4,
+          "output_cost_per_1k": 0.7,
+          "total_price_per_1k": 1.1,
+          "avg_latency_ms": 280.0,
+          "priority": 100,
+          "preferred_order_index": null,
+          "sort_key": [
+            1.4800000000000002,
+            100
+          ],
+          "accepted": true,
+          "reject_reason": null
+        },
+        {
+          "provider": "provider_backup",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-backup-model1",
+          "capabilities": [
+            "chat",
+            "structured_output"
+          ],
+          "required_capabilities": [
+            "chat",
+            "structured_output"
+          ],
+          "input_cost_per_1k": 0.2,
+          "output_cost_per_1k": 0.4,
+          "total_price_per_1k": 0.6,
+          "avg_latency_ms": 360.0,
+          "priority": 200,
+          "preferred_order_index": null,
+          "sort_key": [
+            1.1600000000000001,
+            200
+          ],
+          "accepted": true,
+          "reject_reason": null
+        }
+      ],
+      "rejected_candidates": []
+    },
+    {
+      "workload_class": "multimodal_vision",
+      "strategy": "static_primary_backup",
+      "selected_provider": "provider_primary",
+      "selected_model": "model1",
+      "compression_applied": false,
+      "top_candidates": [
+        {
+          "provider": "provider_primary",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-primary-model1",
+          "capabilities": [
+            "chat",
+            "multimodal",
+            "structured_output",
+            "tool_calling"
+          ],
+          "required_capabilities": [
+            "chat",
+            "multimodal"
+          ],
+          "input_cost_per_1k": 0.4,
+          "output_cost_per_1k": 0.7,
+          "total_price_per_1k": 1.1,
+          "avg_latency_ms": 280.0,
+          "priority": 100,
+          "preferred_order_index": null,
+          "sort_key": [
+            100,
+            280.0,
+            1.1
+          ],
+          "accepted": true,
+          "reject_reason": null
+        }
+      ],
+      "rejected_candidates": [
+        {
+          "provider": "provider_backup",
+          "reject_reason": "missing_required_capabilities"
+        },
+        {
+          "provider": "provider_backup",
+          "reject_reason": "missing_required_capabilities"
+        }
+      ]
+    },
+    {
+      "workload_class": "multimodal_vision",
+      "strategy": "cheapest_provider",
+      "selected_provider": "provider_primary",
+      "selected_model": "model1",
+      "compression_applied": false,
+      "top_candidates": [
+        {
+          "provider": "provider_primary",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-primary-model1",
+          "capabilities": [
+            "chat",
+            "multimodal",
+            "structured_output",
+            "tool_calling"
+          ],
+          "required_capabilities": [
+            "chat",
+            "multimodal"
+          ],
+          "input_cost_per_1k": 0.4,
+          "output_cost_per_1k": 0.7,
+          "total_price_per_1k": 1.1,
+          "avg_latency_ms": 280.0,
+          "priority": 100,
+          "preferred_order_index": null,
+          "sort_key": [
+            1.1,
+            280.0,
+            100
+          ],
+          "accepted": true,
+          "reject_reason": null
+        }
+      ],
+      "rejected_candidates": [
+        {
+          "provider": "provider_backup",
+          "reject_reason": "missing_required_capabilities"
+        },
+        {
+          "provider": "provider_backup",
+          "reject_reason": "missing_required_capabilities"
+        }
+      ]
+    },
+    {
+      "workload_class": "multimodal_vision",
+      "strategy": "fastest_provider",
+      "selected_provider": "provider_primary",
+      "selected_model": "model1",
+      "compression_applied": false,
+      "top_candidates": [
+        {
+          "provider": "provider_primary",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-primary-model1",
+          "capabilities": [
+            "chat",
+            "multimodal",
+            "structured_output",
+            "tool_calling"
+          ],
+          "required_capabilities": [
+            "chat",
+            "multimodal"
+          ],
+          "input_cost_per_1k": 0.4,
+          "output_cost_per_1k": 0.7,
+          "total_price_per_1k": 1.1,
+          "avg_latency_ms": 280.0,
+          "priority": 100,
+          "preferred_order_index": null,
+          "sort_key": [
+            280.0,
+            1.1,
+            100
+          ],
+          "accepted": true,
+          "reject_reason": null
+        }
+      ],
+      "rejected_candidates": [
+        {
+          "provider": "provider_backup",
+          "reject_reason": "missing_required_capabilities"
+        },
+        {
+          "provider": "provider_backup",
+          "reject_reason": "missing_required_capabilities"
+        }
+      ]
+    },
+    {
+      "workload_class": "multimodal_vision",
+      "strategy": "openrouter_like_auto",
+      "selected_provider": "provider_primary",
+      "selected_model": "model1",
+      "compression_applied": false,
+      "top_candidates": [
+        {
+          "provider": "provider_primary",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-primary-model1",
+          "capabilities": [
+            "chat",
+            "multimodal",
+            "structured_output",
+            "tool_calling"
+          ],
+          "required_capabilities": [
+            "chat",
+            "multimodal"
+          ],
+          "input_cost_per_1k": 0.4,
+          "output_cost_per_1k": 0.7,
+          "total_price_per_1k": 1.1,
+          "avg_latency_ms": 280.0,
+          "priority": 100,
+          "preferred_order_index": null,
+          "sort_key": [
+            1.4800000000000002,
+            100
+          ],
+          "accepted": true,
+          "reject_reason": null
+        }
+      ],
+      "rejected_candidates": [
+        {
+          "provider": "provider_backup",
+          "reject_reason": "missing_required_capabilities"
+        },
+        {
+          "provider": "provider_backup",
+          "reject_reason": "missing_required_capabilities"
+        }
+      ]
+    },
+    {
+      "workload_class": "multimodal_vision",
+      "strategy": "current_production_policy",
+      "selected_provider": "provider_primary",
+      "selected_model": "model1",
+      "compression_applied": false,
+      "top_candidates": [
+        {
+          "provider": "provider_primary",
+          "mapped_model": "model1",
+          "provider_model_name": "mock-primary-model1",
+          "capabilities": [
+            "chat",
+            "multimodal",
+            "structured_output",
+            "tool_calling"
+          ],
+          "required_capabilities": [
+            "chat",
+            "multimodal"
+          ],
+          "input_cost_per_1k": 0.4,
+          "output_cost_per_1k": 0.7,
+          "total_price_per_1k": 1.1,
+          "avg_latency_ms": 280.0,
+          "priority": 100,
+          "preferred_order_index": null,
+          "sort_key": [
+            1.4800000000000002,
+            100
+          ],
+          "accepted": true,
+          "reject_reason": null
+        }
+      ],
+      "rejected_candidates": [
+        {
+          "provider": "provider_backup",
+          "reject_reason": "missing_required_capabilities"
+        },
+        {
+          "provider": "provider_backup",
+          "reject_reason": "missing_required_capabilities"
+        }
+      ]
+    }
+  ],
+  "results": [
+    {
+      "example_id": "sales-research-1",
+      "workload_class": "long_context",
+      "strategy": "static_primary_backup",
+      "request_id": "ffdfd37c-df2b-41b0-ab48-ef1f007b4a4d",
+      "requested_model": "model1",
+      "selected_model": "model1",
+      "provider": "provider_primary",
+      "success": true,
+      "fallback_used": false,
+      "schema_valid": true,
+      "tool_success": true,
+      "latency_ms": 0.031,
+      "total_cost": 0.067,
+      "total_tokens": 121,
+      "score": 0.85,
+      "route_trace": {
+        "requested_model": "model1",
+        "selected_provider": "provider_primary",
+        "selected_model": "model1",
+        "blocked": false,
+        "block_reason": null,
+        "compression": {
+          "applied": false,
+          "original_chars": 422,
+          "max_prompt_chars": 4000
+        },
+        "candidates": [
+          {
+            "provider": "provider_primary",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-primary-model1",
+            "capabilities": [
+              "chat",
+              "multimodal",
+              "structured_output",
+              "tool_calling"
+            ],
+            "required_capabilities": [
+              "chat"
+            ],
+            "input_cost_per_1k": 0.4,
+            "output_cost_per_1k": 0.7,
+            "total_price_per_1k": 1.1,
+            "avg_latency_ms": 280.0,
+            "priority": 100,
+            "preferred_order_index": null,
+            "sort_key": [
+              100,
+              280.0,
+              1.1
+            ],
+            "accepted": true,
+            "reject_reason": null
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-backup-model1",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              200,
+              360.0,
+              0.6000000000000001
+            ],
+            "accepted": true,
+            "reject_reason": null
+          }
+        ]
+      }
+    },
+    {
+      "example_id": "sales-research-1",
+      "workload_class": "long_context",
+      "strategy": "cheapest_provider",
+      "request_id": "a7b87b35-27d3-4a39-99ee-527bcc76bb22",
+      "requested_model": "model1",
+      "selected_model": "model1",
+      "provider": "provider_backup",
+      "success": true,
+      "fallback_used": false,
+      "schema_valid": true,
+      "tool_success": true,
+      "latency_ms": 0.022,
+      "total_cost": 0.0366,
+      "total_tokens": 121,
+      "score": 0.85,
+      "route_trace": {
+        "requested_model": "model1",
+        "selected_provider": "provider_backup",
+        "selected_model": "model1",
+        "blocked": false,
+        "block_reason": null,
+        "compression": {
+          "applied": false,
+          "original_chars": 422,
+          "max_prompt_chars": 4000
+        },
+        "candidates": [
+          {
+            "provider": "provider_primary",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-primary-model1",
+            "capabilities": [
+              "chat",
+              "multimodal",
+              "structured_output",
+              "tool_calling"
+            ],
+            "required_capabilities": [
+              "chat"
+            ],
+            "input_cost_per_1k": 0.4,
+            "output_cost_per_1k": 0.7,
+            "total_price_per_1k": 1.1,
+            "avg_latency_ms": 280.0,
+            "priority": 100,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.1,
+              280.0,
+              100
+            ],
+            "accepted": true,
+            "reject_reason": null
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-backup-model1",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              0.6000000000000001,
+              360.0,
+              200
+            ],
+            "accepted": true,
+            "reject_reason": null
+          }
+        ]
+      }
+    },
+    {
+      "example_id": "sales-research-1",
+      "workload_class": "long_context",
+      "strategy": "fastest_provider",
+      "request_id": "a1258921-1e4c-4e5c-b7ab-6821f90bdbc4",
+      "requested_model": "model1",
+      "selected_model": "model1",
+      "provider": "provider_primary",
+      "success": true,
+      "fallback_used": false,
+      "schema_valid": true,
+      "tool_success": true,
+      "latency_ms": 0.022,
+      "total_cost": 0.067,
+      "total_tokens": 121,
+      "score": 0.85,
+      "route_trace": {
+        "requested_model": "model1",
+        "selected_provider": "provider_primary",
+        "selected_model": "model1",
+        "blocked": false,
+        "block_reason": null,
+        "compression": {
+          "applied": false,
+          "original_chars": 422,
+          "max_prompt_chars": 4000
+        },
+        "candidates": [
+          {
+            "provider": "provider_primary",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-primary-model1",
+            "capabilities": [
+              "chat",
+              "multimodal",
+              "structured_output",
+              "tool_calling"
+            ],
+            "required_capabilities": [
+              "chat"
+            ],
+            "input_cost_per_1k": 0.4,
+            "output_cost_per_1k": 0.7,
+            "total_price_per_1k": 1.1,
+            "avg_latency_ms": 280.0,
+            "priority": 100,
+            "preferred_order_index": null,
+            "sort_key": [
+              280.0,
+              1.1,
+              100
+            ],
+            "accepted": true,
+            "reject_reason": null
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-backup-model1",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              360.0,
+              0.6000000000000001,
+              200
+            ],
+            "accepted": true,
+            "reject_reason": null
+          }
+        ]
+      }
+    },
+    {
+      "example_id": "sales-research-1",
+      "workload_class": "long_context",
+      "strategy": "openrouter_like_auto",
+      "request_id": "05a0ecc3-24b3-454a-b357-ec84699c6877",
+      "requested_model": "router/auto",
+      "selected_model": "model1",
+      "provider": "provider_backup",
+      "success": true,
+      "fallback_used": false,
+      "schema_valid": true,
+      "tool_success": true,
+      "latency_ms": 0.019,
+      "total_cost": 0.0366,
+      "total_tokens": 121,
+      "score": 0.85,
+      "route_trace": {
+        "requested_model": "router/auto",
+        "selected_provider": "provider_backup",
+        "selected_model": "model1",
+        "blocked": false,
+        "block_reason": null,
+        "compression": {
+          "applied": false,
+          "original_chars": 422,
+          "max_prompt_chars": 4000
+        },
+        "candidates": [
+          {
+            "provider": "provider_primary",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-primary-model1",
+            "capabilities": [
+              "chat",
+              "multimodal",
+              "structured_output",
+              "tool_calling"
+            ],
+            "required_capabilities": [
+              "chat"
+            ],
+            "input_cost_per_1k": 0.4,
+            "output_cost_per_1k": 0.7,
+            "total_price_per_1k": 1.1,
+            "avg_latency_ms": 280.0,
+            "priority": 100,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.4800000000000002,
+              100
+            ],
+            "accepted": true,
+            "reject_reason": null
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-backup-model1",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.1600000000000001,
+              200
+            ],
+            "accepted": true,
+            "reject_reason": null
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model2",
+            "provider_model_name": "mock-backup-model2",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.1600000000000001,
+              200
+            ],
+            "accepted": true,
+            "reject_reason": null
+          }
+        ]
+      }
+    },
+    {
+      "example_id": "sales-research-1",
+      "workload_class": "long_context",
+      "strategy": "current_production_policy",
+      "request_id": "34165667-53ab-4969-85b3-e80f8070a85b",
+      "requested_model": "model1",
+      "selected_model": "model1",
+      "provider": "provider_primary",
+      "success": true,
+      "fallback_used": false,
+      "schema_valid": true,
+      "tool_success": true,
+      "latency_ms": 0.019,
+      "total_cost": 0.067,
+      "total_tokens": 121,
+      "score": 0.85,
+      "route_trace": {
+        "requested_model": "model1",
+        "selected_provider": "provider_backup",
+        "selected_model": "model1",
+        "blocked": false,
+        "block_reason": null,
+        "compression": {
+          "applied": false,
+          "original_chars": 422,
+          "max_prompt_chars": 4000
+        },
+        "candidates": [
+          {
+            "provider": "provider_primary",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-primary-model1",
+            "capabilities": [
+              "chat",
+              "multimodal",
+              "structured_output",
+              "tool_calling"
+            ],
+            "required_capabilities": [
+              "chat"
+            ],
+            "input_cost_per_1k": 0.4,
+            "output_cost_per_1k": 0.7,
+            "total_price_per_1k": 1.1,
+            "avg_latency_ms": 280.0,
+            "priority": 100,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.4800000000000002,
+              100
+            ],
+            "accepted": true,
+            "reject_reason": null
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-backup-model1",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.1600000000000001,
+              200
+            ],
+            "accepted": true,
+            "reject_reason": null
+          }
+        ]
+      }
+    },
+    {
+      "example_id": "sales-agent-tool-1",
+      "workload_class": "tool_use",
+      "strategy": "static_primary_backup",
+      "request_id": "bf806a64-feb7-48ce-bb38-e108c8d84318",
+      "requested_model": "model1",
+      "selected_model": "model1",
+      "provider": "provider_primary",
+      "success": true,
+      "fallback_used": false,
+      "schema_valid": true,
+      "tool_success": true,
+      "latency_ms": 0.032,
+      "total_cost": 0.0164,
+      "total_tokens": 29,
+      "score": 0.8633,
+      "route_trace": {
+        "requested_model": "model1",
+        "selected_provider": "provider_primary",
+        "selected_model": "model1",
+        "blocked": false,
+        "block_reason": null,
+        "compression": {
+          "applied": false,
+          "original_chars": 83,
+          "max_prompt_chars": 4000
+        },
+        "candidates": [
+          {
+            "provider": "provider_primary",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-primary-model1",
+            "capabilities": [
+              "chat",
+              "multimodal",
+              "structured_output",
+              "tool_calling"
+            ],
+            "required_capabilities": [
+              "chat",
+              "tool_calling"
+            ],
+            "input_cost_per_1k": 0.4,
+            "output_cost_per_1k": 0.7,
+            "total_price_per_1k": 1.1,
+            "avg_latency_ms": 280.0,
+            "priority": 100,
+            "preferred_order_index": null,
+            "sort_key": [
+              100,
+              280.0,
+              1.1
+            ],
+            "accepted": true,
+            "reject_reason": null
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-backup-model1",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat",
+              "tool_calling"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              200,
+              360.0,
+              0.6000000000000001
+            ],
+            "accepted": false,
+            "reject_reason": "missing_required_capabilities"
+          }
+        ]
+      }
+    },
+    {
+      "example_id": "sales-agent-tool-1",
+      "workload_class": "tool_use",
+      "strategy": "cheapest_provider",
+      "request_id": "a7b95bcb-f9d0-413d-8d68-deb2c005b9a0",
+      "requested_model": "model1",
+      "selected_model": "model1",
+      "provider": "provider_primary",
+      "success": true,
+      "fallback_used": false,
+      "schema_valid": true,
+      "tool_success": true,
+      "latency_ms": 0.026,
+      "total_cost": 0.0164,
+      "total_tokens": 29,
+      "score": 0.8633,
+      "route_trace": {
+        "requested_model": "model1",
+        "selected_provider": "provider_primary",
+        "selected_model": "model1",
+        "blocked": false,
+        "block_reason": null,
+        "compression": {
+          "applied": false,
+          "original_chars": 83,
+          "max_prompt_chars": 4000
+        },
+        "candidates": [
+          {
+            "provider": "provider_primary",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-primary-model1",
+            "capabilities": [
+              "chat",
+              "multimodal",
+              "structured_output",
+              "tool_calling"
+            ],
+            "required_capabilities": [
+              "chat",
+              "tool_calling"
+            ],
+            "input_cost_per_1k": 0.4,
+            "output_cost_per_1k": 0.7,
+            "total_price_per_1k": 1.1,
+            "avg_latency_ms": 280.0,
+            "priority": 100,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.1,
+              280.0,
+              100
+            ],
+            "accepted": true,
+            "reject_reason": null
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-backup-model1",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat",
+              "tool_calling"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              0.6000000000000001,
+              360.0,
+              200
+            ],
+            "accepted": false,
+            "reject_reason": "missing_required_capabilities"
+          }
+        ]
+      }
+    },
+    {
+      "example_id": "sales-agent-tool-1",
+      "workload_class": "tool_use",
+      "strategy": "fastest_provider",
+      "request_id": "52b26d56-27e1-410e-8c61-976a4556b471",
+      "requested_model": "model1",
+      "selected_model": "model1",
+      "provider": "provider_primary",
+      "success": true,
+      "fallback_used": false,
+      "schema_valid": true,
+      "tool_success": true,
+      "latency_ms": 0.024,
+      "total_cost": 0.0164,
+      "total_tokens": 29,
+      "score": 0.8633,
+      "route_trace": {
+        "requested_model": "model1",
+        "selected_provider": "provider_primary",
+        "selected_model": "model1",
+        "blocked": false,
+        "block_reason": null,
+        "compression": {
+          "applied": false,
+          "original_chars": 83,
+          "max_prompt_chars": 4000
+        },
+        "candidates": [
+          {
+            "provider": "provider_primary",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-primary-model1",
+            "capabilities": [
+              "chat",
+              "multimodal",
+              "structured_output",
+              "tool_calling"
+            ],
+            "required_capabilities": [
+              "chat",
+              "tool_calling"
+            ],
+            "input_cost_per_1k": 0.4,
+            "output_cost_per_1k": 0.7,
+            "total_price_per_1k": 1.1,
+            "avg_latency_ms": 280.0,
+            "priority": 100,
+            "preferred_order_index": null,
+            "sort_key": [
+              280.0,
+              1.1,
+              100
+            ],
+            "accepted": true,
+            "reject_reason": null
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-backup-model1",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat",
+              "tool_calling"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              360.0,
+              0.6000000000000001,
+              200
+            ],
+            "accepted": false,
+            "reject_reason": "missing_required_capabilities"
+          }
+        ]
+      }
+    },
+    {
+      "example_id": "sales-agent-tool-1",
+      "workload_class": "tool_use",
+      "strategy": "openrouter_like_auto",
+      "request_id": "d62edffa-c728-40df-8d7d-ddd2470589c1",
+      "requested_model": "router/auto",
+      "selected_model": "model1",
+      "provider": "provider_primary",
+      "success": true,
+      "fallback_used": false,
+      "schema_valid": true,
+      "tool_success": true,
+      "latency_ms": 0.022,
+      "total_cost": 0.0164,
+      "total_tokens": 29,
+      "score": 0.8633,
+      "route_trace": {
+        "requested_model": "router/auto",
+        "selected_provider": "provider_primary",
+        "selected_model": "model1",
+        "blocked": false,
+        "block_reason": null,
+        "compression": {
+          "applied": false,
+          "original_chars": 83,
+          "max_prompt_chars": 4000
+        },
+        "candidates": [
+          {
+            "provider": "provider_primary",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-primary-model1",
+            "capabilities": [
+              "chat",
+              "multimodal",
+              "structured_output",
+              "tool_calling"
+            ],
+            "required_capabilities": [
+              "chat",
+              "tool_calling"
+            ],
+            "input_cost_per_1k": 0.4,
+            "output_cost_per_1k": 0.7,
+            "total_price_per_1k": 1.1,
+            "avg_latency_ms": 280.0,
+            "priority": 100,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.4800000000000002,
+              100
+            ],
+            "accepted": true,
+            "reject_reason": null
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-backup-model1",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat",
+              "tool_calling"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.1600000000000001,
+              200
+            ],
+            "accepted": false,
+            "reject_reason": "missing_required_capabilities"
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model2",
+            "provider_model_name": "mock-backup-model2",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat",
+              "tool_calling"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.1600000000000001,
+              200
+            ],
+            "accepted": false,
+            "reject_reason": "missing_required_capabilities"
+          }
+        ]
+      }
+    },
+    {
+      "example_id": "sales-agent-tool-1",
+      "workload_class": "tool_use",
+      "strategy": "current_production_policy",
+      "request_id": "38e45916-7a8b-4559-a881-becd0e9f7f57",
+      "requested_model": "model1",
+      "selected_model": "model1",
+      "provider": "provider_primary",
+      "success": true,
+      "fallback_used": false,
+      "schema_valid": true,
+      "tool_success": true,
+      "latency_ms": 0.023,
+      "total_cost": 0.0164,
+      "total_tokens": 29,
+      "score": 0.8633,
+      "route_trace": {
+        "requested_model": "model1",
+        "selected_provider": "provider_primary",
+        "selected_model": "model1",
+        "blocked": false,
+        "block_reason": null,
+        "compression": {
+          "applied": false,
+          "original_chars": 83,
+          "max_prompt_chars": 4000
+        },
+        "candidates": [
+          {
+            "provider": "provider_primary",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-primary-model1",
+            "capabilities": [
+              "chat",
+              "multimodal",
+              "structured_output",
+              "tool_calling"
+            ],
+            "required_capabilities": [
+              "chat",
+              "tool_calling"
+            ],
+            "input_cost_per_1k": 0.4,
+            "output_cost_per_1k": 0.7,
+            "total_price_per_1k": 1.1,
+            "avg_latency_ms": 280.0,
+            "priority": 100,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.4800000000000002,
+              100
+            ],
+            "accepted": true,
+            "reject_reason": null
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-backup-model1",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat",
+              "tool_calling"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.1600000000000001,
+              200
+            ],
+            "accepted": false,
+            "reject_reason": "missing_required_capabilities"
+          }
+        ]
+      }
+    },
+    {
+      "example_id": "sales-structured-1",
+      "workload_class": "structured_extraction",
+      "strategy": "static_primary_backup",
+      "request_id": "568ad900-3908-4ce1-a50d-83cf36846115",
+      "requested_model": "model1",
+      "selected_model": "model1",
+      "provider": "provider_primary",
+      "success": true,
+      "fallback_used": false,
+      "schema_valid": true,
+      "tool_success": true,
+      "latency_ms": 0.061,
+      "total_cost": 0.0206,
+      "total_tokens": 35,
+      "score": 0.85,
+      "route_trace": {
+        "requested_model": "model1",
+        "selected_provider": "provider_primary",
+        "selected_model": "model1",
+        "blocked": false,
+        "block_reason": null,
+        "compression": {
+          "applied": false,
+          "original_chars": 100,
+          "max_prompt_chars": 4000
+        },
+        "candidates": [
+          {
+            "provider": "provider_primary",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-primary-model1",
+            "capabilities": [
+              "chat",
+              "multimodal",
+              "structured_output",
+              "tool_calling"
+            ],
+            "required_capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "input_cost_per_1k": 0.4,
+            "output_cost_per_1k": 0.7,
+            "total_price_per_1k": 1.1,
+            "avg_latency_ms": 280.0,
+            "priority": 100,
+            "preferred_order_index": null,
+            "sort_key": [
+              100,
+              280.0,
+              1.1
+            ],
+            "accepted": true,
+            "reject_reason": null
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-backup-model1",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              200,
+              360.0,
+              0.6000000000000001
+            ],
+            "accepted": true,
+            "reject_reason": null
+          }
+        ]
+      }
+    },
+    {
+      "example_id": "sales-structured-1",
+      "workload_class": "structured_extraction",
+      "strategy": "cheapest_provider",
+      "request_id": "380807e5-27a1-4695-ade8-5e42d22d2bf5",
+      "requested_model": "model1",
+      "selected_model": "model1",
+      "provider": "provider_backup",
+      "success": true,
+      "fallback_used": false,
+      "schema_valid": true,
+      "tool_success": true,
+      "latency_ms": 0.056,
+      "total_cost": 0.0122,
+      "total_tokens": 37,
+      "score": 0.85,
+      "route_trace": {
+        "requested_model": "model1",
+        "selected_provider": "provider_backup",
+        "selected_model": "model1",
+        "blocked": false,
+        "block_reason": null,
+        "compression": {
+          "applied": false,
+          "original_chars": 100,
+          "max_prompt_chars": 4000
+        },
+        "candidates": [
+          {
+            "provider": "provider_primary",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-primary-model1",
+            "capabilities": [
+              "chat",
+              "multimodal",
+              "structured_output",
+              "tool_calling"
+            ],
+            "required_capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "input_cost_per_1k": 0.4,
+            "output_cost_per_1k": 0.7,
+            "total_price_per_1k": 1.1,
+            "avg_latency_ms": 280.0,
+            "priority": 100,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.1,
+              280.0,
+              100
+            ],
+            "accepted": true,
+            "reject_reason": null
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-backup-model1",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              0.6000000000000001,
+              360.0,
+              200
+            ],
+            "accepted": true,
+            "reject_reason": null
+          }
+        ]
+      }
+    },
+    {
+      "example_id": "sales-structured-1",
+      "workload_class": "structured_extraction",
+      "strategy": "fastest_provider",
+      "request_id": "c5a76d60-e741-4a55-882a-acb71c92d66b",
+      "requested_model": "model1",
+      "selected_model": "model1",
+      "provider": "provider_primary",
+      "success": true,
+      "fallback_used": false,
+      "schema_valid": true,
+      "tool_success": true,
+      "latency_ms": 0.041,
+      "total_cost": 0.0206,
+      "total_tokens": 35,
+      "score": 0.85,
+      "route_trace": {
+        "requested_model": "model1",
+        "selected_provider": "provider_primary",
+        "selected_model": "model1",
+        "blocked": false,
+        "block_reason": null,
+        "compression": {
+          "applied": false,
+          "original_chars": 100,
+          "max_prompt_chars": 4000
+        },
+        "candidates": [
+          {
+            "provider": "provider_primary",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-primary-model1",
+            "capabilities": [
+              "chat",
+              "multimodal",
+              "structured_output",
+              "tool_calling"
+            ],
+            "required_capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "input_cost_per_1k": 0.4,
+            "output_cost_per_1k": 0.7,
+            "total_price_per_1k": 1.1,
+            "avg_latency_ms": 280.0,
+            "priority": 100,
+            "preferred_order_index": null,
+            "sort_key": [
+              280.0,
+              1.1,
+              100
+            ],
+            "accepted": true,
+            "reject_reason": null
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-backup-model1",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              360.0,
+              0.6000000000000001,
+              200
+            ],
+            "accepted": true,
+            "reject_reason": null
+          }
+        ]
+      }
+    },
+    {
+      "example_id": "sales-structured-1",
+      "workload_class": "structured_extraction",
+      "strategy": "openrouter_like_auto",
+      "request_id": "ff7f6cc7-ab87-45e8-b3df-f6a6303f2a01",
+      "requested_model": "router/auto",
+      "selected_model": "model1",
+      "provider": "provider_backup",
+      "success": true,
+      "fallback_used": false,
+      "schema_valid": true,
+      "tool_success": true,
+      "latency_ms": 0.047,
+      "total_cost": 0.0122,
+      "total_tokens": 37,
+      "score": 0.85,
+      "route_trace": {
+        "requested_model": "router/auto",
+        "selected_provider": "provider_backup",
+        "selected_model": "model1",
+        "blocked": false,
+        "block_reason": null,
+        "compression": {
+          "applied": false,
+          "original_chars": 100,
+          "max_prompt_chars": 4000
+        },
+        "candidates": [
+          {
+            "provider": "provider_primary",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-primary-model1",
+            "capabilities": [
+              "chat",
+              "multimodal",
+              "structured_output",
+              "tool_calling"
+            ],
+            "required_capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "input_cost_per_1k": 0.4,
+            "output_cost_per_1k": 0.7,
+            "total_price_per_1k": 1.1,
+            "avg_latency_ms": 280.0,
+            "priority": 100,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.4800000000000002,
+              100
+            ],
+            "accepted": true,
+            "reject_reason": null
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-backup-model1",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.1600000000000001,
+              200
+            ],
+            "accepted": true,
+            "reject_reason": null
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model2",
+            "provider_model_name": "mock-backup-model2",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.1600000000000001,
+              200
+            ],
+            "accepted": true,
+            "reject_reason": null
+          }
+        ]
+      }
+    },
+    {
+      "example_id": "sales-structured-1",
+      "workload_class": "structured_extraction",
+      "strategy": "current_production_policy",
+      "request_id": "d501f21a-9073-45bc-93bc-a76993ef8615",
+      "requested_model": "model1",
+      "selected_model": "model1",
+      "provider": "provider_primary",
+      "success": true,
+      "fallback_used": false,
+      "schema_valid": true,
+      "tool_success": true,
+      "latency_ms": 0.041,
+      "total_cost": 0.0206,
+      "total_tokens": 35,
+      "score": 0.85,
+      "route_trace": {
+        "requested_model": "model1",
+        "selected_provider": "provider_backup",
+        "selected_model": "model1",
+        "blocked": false,
+        "block_reason": null,
+        "compression": {
+          "applied": false,
+          "original_chars": 100,
+          "max_prompt_chars": 4000
+        },
+        "candidates": [
+          {
+            "provider": "provider_primary",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-primary-model1",
+            "capabilities": [
+              "chat",
+              "multimodal",
+              "structured_output",
+              "tool_calling"
+            ],
+            "required_capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "input_cost_per_1k": 0.4,
+            "output_cost_per_1k": 0.7,
+            "total_price_per_1k": 1.1,
+            "avg_latency_ms": 280.0,
+            "priority": 100,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.4800000000000002,
+              100
+            ],
+            "accepted": true,
+            "reject_reason": null
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-backup-model1",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.1600000000000001,
+              200
+            ],
+            "accepted": true,
+            "reject_reason": null
+          }
+        ]
+      }
+    },
+    {
+      "example_id": "sales-vision-1",
+      "workload_class": "multimodal_vision",
+      "strategy": "static_primary_backup",
+      "request_id": "731636c3-8a2a-40f3-8519-237deb25bea1",
+      "requested_model": "router/auto",
+      "selected_model": "model1",
+      "provider": "provider_primary",
+      "success": true,
+      "fallback_used": false,
+      "schema_valid": true,
+      "tool_success": true,
+      "latency_ms": 0.018,
+      "total_cost": 0.0164,
+      "total_tokens": 29,
+      "score": 0.9016,
+      "route_trace": {
+        "requested_model": "router/auto",
+        "selected_provider": "provider_primary",
+        "selected_model": "model1",
+        "blocked": false,
+        "block_reason": null,
+        "compression": {
+          "applied": false,
+          "original_chars": 84,
+          "max_prompt_chars": 4000
+        },
+        "candidates": [
+          {
+            "provider": "provider_primary",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-primary-model1",
+            "capabilities": [
+              "chat",
+              "multimodal",
+              "structured_output",
+              "tool_calling"
+            ],
+            "required_capabilities": [
+              "chat",
+              "multimodal"
+            ],
+            "input_cost_per_1k": 0.4,
+            "output_cost_per_1k": 0.7,
+            "total_price_per_1k": 1.1,
+            "avg_latency_ms": 280.0,
+            "priority": 100,
+            "preferred_order_index": null,
+            "sort_key": [
+              100,
+              280.0,
+              1.1
+            ],
+            "accepted": true,
+            "reject_reason": null
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-backup-model1",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat",
+              "multimodal"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              200,
+              360.0,
+              0.6000000000000001
+            ],
+            "accepted": false,
+            "reject_reason": "missing_required_capabilities"
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model2",
+            "provider_model_name": "mock-backup-model2",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat",
+              "multimodal"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              200,
+              360.0,
+              0.6000000000000001
+            ],
+            "accepted": false,
+            "reject_reason": "missing_required_capabilities"
+          }
+        ]
+      }
+    },
+    {
+      "example_id": "sales-vision-1",
+      "workload_class": "multimodal_vision",
+      "strategy": "cheapest_provider",
+      "request_id": "402f70fa-8d91-4061-bf13-96a61dadd099",
+      "requested_model": "router/auto",
+      "selected_model": "model1",
+      "provider": "provider_primary",
+      "success": true,
+      "fallback_used": false,
+      "schema_valid": true,
+      "tool_success": true,
+      "latency_ms": 0.035,
+      "total_cost": 0.0164,
+      "total_tokens": 29,
+      "score": 0.9016,
+      "route_trace": {
+        "requested_model": "router/auto",
+        "selected_provider": "provider_primary",
+        "selected_model": "model1",
+        "blocked": false,
+        "block_reason": null,
+        "compression": {
+          "applied": false,
+          "original_chars": 84,
+          "max_prompt_chars": 4000
+        },
+        "candidates": [
+          {
+            "provider": "provider_primary",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-primary-model1",
+            "capabilities": [
+              "chat",
+              "multimodal",
+              "structured_output",
+              "tool_calling"
+            ],
+            "required_capabilities": [
+              "chat",
+              "multimodal"
+            ],
+            "input_cost_per_1k": 0.4,
+            "output_cost_per_1k": 0.7,
+            "total_price_per_1k": 1.1,
+            "avg_latency_ms": 280.0,
+            "priority": 100,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.1,
+              280.0,
+              100
+            ],
+            "accepted": true,
+            "reject_reason": null
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-backup-model1",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat",
+              "multimodal"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              0.6000000000000001,
+              360.0,
+              200
+            ],
+            "accepted": false,
+            "reject_reason": "missing_required_capabilities"
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model2",
+            "provider_model_name": "mock-backup-model2",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat",
+              "multimodal"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              0.6000000000000001,
+              360.0,
+              200
+            ],
+            "accepted": false,
+            "reject_reason": "missing_required_capabilities"
+          }
+        ]
+      }
+    },
+    {
+      "example_id": "sales-vision-1",
+      "workload_class": "multimodal_vision",
+      "strategy": "fastest_provider",
+      "request_id": "381185a8-befa-410f-a042-b5b241d75fe1",
+      "requested_model": "router/auto",
+      "selected_model": "model1",
+      "provider": "provider_primary",
+      "success": true,
+      "fallback_used": false,
+      "schema_valid": true,
+      "tool_success": true,
+      "latency_ms": 0.016,
+      "total_cost": 0.0164,
+      "total_tokens": 29,
+      "score": 0.9016,
+      "route_trace": {
+        "requested_model": "router/auto",
+        "selected_provider": "provider_primary",
+        "selected_model": "model1",
+        "blocked": false,
+        "block_reason": null,
+        "compression": {
+          "applied": false,
+          "original_chars": 84,
+          "max_prompt_chars": 4000
+        },
+        "candidates": [
+          {
+            "provider": "provider_primary",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-primary-model1",
+            "capabilities": [
+              "chat",
+              "multimodal",
+              "structured_output",
+              "tool_calling"
+            ],
+            "required_capabilities": [
+              "chat",
+              "multimodal"
+            ],
+            "input_cost_per_1k": 0.4,
+            "output_cost_per_1k": 0.7,
+            "total_price_per_1k": 1.1,
+            "avg_latency_ms": 280.0,
+            "priority": 100,
+            "preferred_order_index": null,
+            "sort_key": [
+              280.0,
+              1.1,
+              100
+            ],
+            "accepted": true,
+            "reject_reason": null
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-backup-model1",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat",
+              "multimodal"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              360.0,
+              0.6000000000000001,
+              200
+            ],
+            "accepted": false,
+            "reject_reason": "missing_required_capabilities"
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model2",
+            "provider_model_name": "mock-backup-model2",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat",
+              "multimodal"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              360.0,
+              0.6000000000000001,
+              200
+            ],
+            "accepted": false,
+            "reject_reason": "missing_required_capabilities"
+          }
+        ]
+      }
+    },
+    {
+      "example_id": "sales-vision-1",
+      "workload_class": "multimodal_vision",
+      "strategy": "openrouter_like_auto",
+      "request_id": "dc429cda-a1f3-4f46-90a1-778ee75ef3f9",
+      "requested_model": "router/auto",
+      "selected_model": "model1",
+      "provider": "provider_primary",
+      "success": true,
+      "fallback_used": false,
+      "schema_valid": true,
+      "tool_success": true,
+      "latency_ms": 0.014,
+      "total_cost": 0.0164,
+      "total_tokens": 29,
+      "score": 0.9016,
+      "route_trace": {
+        "requested_model": "router/auto",
+        "selected_provider": "provider_primary",
+        "selected_model": "model1",
+        "blocked": false,
+        "block_reason": null,
+        "compression": {
+          "applied": false,
+          "original_chars": 84,
+          "max_prompt_chars": 4000
+        },
+        "candidates": [
+          {
+            "provider": "provider_primary",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-primary-model1",
+            "capabilities": [
+              "chat",
+              "multimodal",
+              "structured_output",
+              "tool_calling"
+            ],
+            "required_capabilities": [
+              "chat",
+              "multimodal"
+            ],
+            "input_cost_per_1k": 0.4,
+            "output_cost_per_1k": 0.7,
+            "total_price_per_1k": 1.1,
+            "avg_latency_ms": 280.0,
+            "priority": 100,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.4800000000000002,
+              100
+            ],
+            "accepted": true,
+            "reject_reason": null
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-backup-model1",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat",
+              "multimodal"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.1600000000000001,
+              200
+            ],
+            "accepted": false,
+            "reject_reason": "missing_required_capabilities"
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model2",
+            "provider_model_name": "mock-backup-model2",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat",
+              "multimodal"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.1600000000000001,
+              200
+            ],
+            "accepted": false,
+            "reject_reason": "missing_required_capabilities"
+          }
+        ]
+      }
+    },
+    {
+      "example_id": "sales-vision-1",
+      "workload_class": "multimodal_vision",
+      "strategy": "current_production_policy",
+      "request_id": "5a538611-4991-4796-b6e9-f0c3d4f0dc8a",
+      "requested_model": "router/auto",
+      "selected_model": "model1",
+      "provider": "provider_primary",
+      "success": true,
+      "fallback_used": false,
+      "schema_valid": true,
+      "tool_success": true,
+      "latency_ms": 0.016,
+      "total_cost": 0.0164,
+      "total_tokens": 29,
+      "score": 0.9016,
+      "route_trace": {
+        "requested_model": "router/auto",
+        "selected_provider": "provider_primary",
+        "selected_model": "model1",
+        "blocked": false,
+        "block_reason": null,
+        "compression": {
+          "applied": false,
+          "original_chars": 84,
+          "max_prompt_chars": 4000
+        },
+        "candidates": [
+          {
+            "provider": "provider_primary",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-primary-model1",
+            "capabilities": [
+              "chat",
+              "multimodal",
+              "structured_output",
+              "tool_calling"
+            ],
+            "required_capabilities": [
+              "chat",
+              "multimodal"
+            ],
+            "input_cost_per_1k": 0.4,
+            "output_cost_per_1k": 0.7,
+            "total_price_per_1k": 1.1,
+            "avg_latency_ms": 280.0,
+            "priority": 100,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.4800000000000002,
+              100
+            ],
+            "accepted": true,
+            "reject_reason": null
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model1",
+            "provider_model_name": "mock-backup-model1",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat",
+              "multimodal"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.1600000000000001,
+              200
+            ],
+            "accepted": false,
+            "reject_reason": "missing_required_capabilities"
+          },
+          {
+            "provider": "provider_backup",
+            "mapped_model": "model2",
+            "provider_model_name": "mock-backup-model2",
+            "capabilities": [
+              "chat",
+              "structured_output"
+            ],
+            "required_capabilities": [
+              "chat",
+              "multimodal"
+            ],
+            "input_cost_per_1k": 0.2,
+            "output_cost_per_1k": 0.4,
+            "total_price_per_1k": 0.6,
+            "avg_latency_ms": 360.0,
+            "priority": 200,
+            "preferred_order_index": null,
+            "sort_key": [
+              1.1600000000000001,
+              200
+            ],
+            "accepted": false,
+            "reject_reason": "missing_required_capabilities"
+          }
+        ]
+      }
+    }
+  ]
+}

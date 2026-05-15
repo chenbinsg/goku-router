@@ -1,0 +1,81 @@
+{
+  "dataset_name": "sample_router_eval",
+  "examples": [
+    {
+      "example_id": "chat-general-1",
+      "workload_class": "chat_general",
+      "model": "model1",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Give me a short explanation of why routing matters."
+        }
+      ],
+      "latency_budget_ms": 1000,
+      "max_cost_usd": 0.01
+    },
+    {
+      "example_id": "structured-1",
+      "workload_class": "structured_extraction",
+      "model": "model1",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Return a structured summary for this order issue."
+        }
+      ],
+      "response_format": {
+        "type": "json_schema",
+        "json_schema": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "summary": {
+                "type": "string"
+              },
+              "priority": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "summary",
+              "priority"
+            ]
+          }
+        }
+      },
+      "latency_budget_ms": 1200,
+      "max_cost_usd": 0.02
+    },
+    {
+      "example_id": "tool-1",
+      "workload_class": "tool_use",
+      "model": "model1",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Use the lookup_weather tool for Tokyo."
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "lookup_weather",
+            "description": "Get weather information",
+            "parameters": {
+              "type": "object"
+            }
+          }
+        }
+      ],
+      "provider": {
+        "require_capabilities": [
+          "tool_calling"
+        ]
+      },
+      "latency_budget_ms": 1500,
+      "max_cost_usd": 0.02
+    }
+  ]
+}

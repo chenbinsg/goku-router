@@ -1,0 +1,155 @@
+import React, { useEffect, useState } from 'react';
+import { Table, Button, Modal, Form, Input, message, Card } from 'antd';
+import { addModel, getModels, getProviders, updateModel } from '../api';
+import { Model, Provider } from '../types';
+import { useI18n } from '../i18n';
+
+const ModelsAdminPage: React.FC = () => {
+  const { t } = useI18n();
+  const [models, setModels] = useState<Model[]>([]);
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [editingModel, setEditingModel] = useState<Model | null>(null);
+  const [form] = Form.useForm<Model>();
+
+  useEffect(() => {
+    const fetchModels = async () => {
+      setLoading(true);
+      try {
+        const [modelResponse, providerResponse] = await Promise.all([
+          getModels(),
+          getProviders(),
+        ]);
+        setModels(modelResponse);
+        setProviders(providerResponse);
+        message.success(t('modelsAdmin.loaded'));
+      } catch (error) {
+        message.error(t('modelsAdmin.loadFailed'));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchModels();
+  }, []);
+
+  const columns = [
+    {
+      title: t('modelsList.modelId'),
+      dataIndex: 'modelId',
+      key: 'modelId',
+    },
+    {
+      title: t('common.provider'),
+      dataIndex: 'providerName',
+      key: 'providerName',
+    },
+    {
+      title: t('modelsAdmin.providerModel'),
+      dataIndex: 'providerModelName',
+      key: 'providerModelName',
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      render: (_: unknown, record: Model) => (
+        <Button
+          type="link"
+          onClick={() => {
+            setEditingModel(record);
+            form.setFieldsValue(record);
+            setIsModalVisible(true);
+          }}
+        >
+          {t('common.edit')}
+        </Button>
+      ),
+    },
+  ];
+
+  const handleOk = async (values: Model) => {
+    if (editingModel?.id) {
+      const updated = await updateModel({ ...editingModel, ...values });
+      setModels((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      message.success(t('modelsAdmin.updated'));
+    } else {
+      const created = await addModel(values);
+      setModels((current) => [...current, created]);
+      message.success(t('modelsAdmin.added'));
+    }
+    setIsModalVisible(false);
+    setEditingModel(null);
+    form.resetFields();
+  };
+
+  return (
+    <Card title={t('modelsAdmin.title')}>
+      <Button
+        type="primary"
+        onClick={() => {
+          setEditingModel(null);
+          form.resetFields();
+          form.setFieldsValue({ status: 'active' });
+          setIsModalVisible(true);
+        }}
+        style={{ marginBottom: 16 }}
+      >
+        {t('modelsAdmin.add')}
+      </Button>
+      <Table
+        dataSource={models.map((model) => ({ ...model, key: model.id || `${model.modelId}-${model.providerId}` }))}
+        columns={columns}
+        loading={loading}
+        pagination={false}
+      />
+      <Modal
+        title={editingModel ? t('modelsAdmin.edit') : t('modelsAdmin.add')}
+        open={isModalVisible}
+        onCancel={() => {
+          setIsModalVisible(false);
+          setEditingModel(null);
+          form.resetFields();
+        }}
+        footer={null}
+      >
+        <Form form={form} layout="vertical" onFinish={handleOk}>
+          <Form.Item name="id" hidden>
+            <Input />
+          </Form.Item>
+          <Form.Item
+            label={t('modelsList.modelId')}
+            name="modelId"
+            rules={[{ required: true, message: t('modelsAdmin.modelIdRequired') }]}
+          >
+            <Input />
+          </Form.Item>
+          <Form.Item
+            label={t('modelsAdmin.providerId')}
+            name="providerId"
+            rules={[{ required: true, message: t('modelsAdmin.providerIdRequired') }]}
+          >
+            <Input placeholder={providers.map((provider) => `${provider.id}:${provider.providerName}`).join(', ')} />
+          </Form.Item>
+          <Form.Item
+            label={t('modelsAdmin.providerModelName')}
+            name="providerModelName"
+            rules={[{ required: true, message: t('modelsAdmin.providerModelRequired') }]}
+          >
+            <Input />
+          </Form.Item>
+          <Form.Item name="status" hidden>
+            <Input />
+          </Form.Item>
+          <Form.Item>
+            <Button type="primary" htmlType="submit">
+              {t('common.submit')}
+            </Button>
+          </Form.Item>
+        </Form>
+      </Modal>
+    </Card>
+  );
+};
+
+export default ModelsAdminPage;

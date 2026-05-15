@@ -1,0 +1,100 @@
+{
+  "dataset_name": "customer_support_pack",
+  "examples": [
+    {
+      "example_id": "support-triage-1",
+      "workload_class": "classification",
+      "model": "model1",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Classify this ticket: Customer cannot log in after password reset and needs urgent help."
+        }
+      ],
+      "response_format": {
+        "type": "json_schema",
+        "json_schema": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "category": { "type": "string" },
+              "priority": { "type": "integer" },
+              "needs_human": { "type": "boolean" }
+            },
+            "required": ["category", "priority", "needs_human"]
+          }
+        }
+      },
+      "latency_budget_ms": 700,
+      "max_cost_usd": 0.008
+    },
+    {
+      "example_id": "support-summary-1",
+      "workload_class": "chat_general",
+      "model": "model1",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Summarize the following customer issue in 3 bullet points: delayed refund, duplicate charge, and poor support response."
+        }
+      ],
+      "latency_budget_ms": 900,
+      "max_cost_usd": 0.01
+    },
+    {
+      "example_id": "support-tool-1",
+      "workload_class": "tool_use",
+      "model": "model1",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Use the lookup_order_status tool for order #A-14592."
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "lookup_order_status",
+            "description": "Fetch order fulfillment status",
+            "parameters": {
+              "type": "object"
+            }
+          }
+        }
+      ],
+      "provider": {
+        "require_capabilities": ["tool_calling"]
+      },
+      "latency_budget_ms": 1200,
+      "max_cost_usd": 0.015
+    },
+    {
+      "example_id": "support-policy-1",
+      "workload_class": "structured_extraction",
+      "model": "model1",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Extract issue type, refund amount, and escalation flag from this case note."
+        }
+      ],
+      "response_format": {
+        "type": "json_schema",
+        "json_schema": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "issue_type": { "type": "string" },
+              "refund_amount": { "type": "number" },
+              "escalate": { "type": "boolean" }
+            },
+            "required": ["issue_type", "refund_amount", "escalate"]
+          }
+        }
+      },
+      "latency_budget_ms": 1000,
+      "max_cost_usd": 0.012
+    }
+  ]
+}

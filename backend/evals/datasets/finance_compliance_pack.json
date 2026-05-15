@@ -1,0 +1,122 @@
+{
+  "dataset_name": "finance_compliance_pack",
+  "examples": [
+    {
+      "example_id": "finance-zdr-1",
+      "workload_class": "structured_extraction",
+      "model": "model1",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Extract account number risk level, filing urgency, and review owner from this internal finance note."
+        }
+      ],
+      "response_format": {
+        "type": "json_schema",
+        "json_schema": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "risk_level": { "type": "string" },
+              "urgency": { "type": "integer" },
+              "review_owner": { "type": "string" }
+            },
+            "required": ["risk_level", "urgency", "review_owner"]
+          }
+        }
+      },
+      "provider": {
+        "require_capabilities": ["structured_output", "zdr"]
+      },
+      "latency_budget_ms": 1100,
+      "max_cost_usd": 0.02
+    },
+    {
+      "example_id": "finance-policy-1",
+      "workload_class": "classification",
+      "model": "model1",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Classify this approval request as routine, high-risk, or escalated for compliance review."
+        }
+      ],
+      "provider": {
+        "max_price_per_1k": 0.8
+      },
+      "latency_budget_ms": 900,
+      "max_cost_usd": 0.01
+    },
+    {
+      "example_id": "finance-tool-1",
+      "workload_class": "tool_use",
+      "model": "model1",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Use the lookup_ledger_entry tool for entry 2026-441 and suggest next audit steps."
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "lookup_ledger_entry",
+            "description": "Fetch ledger metadata",
+            "parameters": {
+              "type": "object"
+            }
+          }
+        }
+      ],
+      "provider": {
+        "require_capabilities": ["tool_calling", "zdr"]
+      },
+      "latency_budget_ms": 1200,
+      "max_cost_usd": 0.02
+    },
+    {
+      "example_id": "finance-multimodal-1",
+      "workload_class": "multimodal_vision",
+      "model": "router/auto",
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "Read this finance dashboard and summarize the top compliance anomalies."
+            },
+            {
+              "type": "image_url",
+              "image_url": {
+                "url": "https://example.com/fake-finance-dashboard.png"
+              }
+            }
+          ]
+        }
+      ],
+      "provider": {
+        "require_capabilities": ["multimodal", "zdr"]
+      },
+      "latency_budget_ms": 1600,
+      "max_cost_usd": 0.025
+    }
+  ],
+  "policy_dry_run_cases": [
+    {
+      "case_id": "deny-primary-provider",
+      "example_id": "finance-zdr-1",
+      "guardrails": {
+        "denied_providers": "provider_primary"
+      }
+    },
+    {
+      "case_id": "blocked-keyword-policy",
+      "example_id": "finance-policy-1",
+      "guardrails": {
+        "blocked_words": "approval"
+      }
+    }
+  ]
+}
