@@ -4,8 +4,12 @@ from pydantic import BaseModel, ConfigDict
 
 
 class ChatMessage(BaseModel):
+    model_config = ConfigDict(extra="allow")
     role: str = "user"
     content: Any
+    tool_calls: Optional[List[dict[str, Any]]] = None
+    tool_call_id: Optional[str] = None
+    name: Optional[str] = None
 
 
 class ProviderPreferences(BaseModel):

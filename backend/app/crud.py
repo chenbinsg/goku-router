@@ -187,7 +187,7 @@ def seed_demo_data(db: Session):
                     allowed_providers="",
                     denied_providers="",
                     blocked_words="",
-                    max_prompt_chars=4000,
+                    max_prompt_chars=200000,
                     retention_mode="standard",
                 )
             )
@@ -200,7 +200,7 @@ def seed_demo_data(db: Session):
                         allowed_providers="",
                         denied_providers="",
                         blocked_words="",
-                        max_prompt_chars=4000,
+                        max_prompt_chars=200000,
                         retention_mode="standard",
                     ),
                     models.GuardrailPolicyPreset(
@@ -209,7 +209,7 @@ def seed_demo_data(db: Session):
                         allowed_providers="provider_primary",
                         denied_providers="provider_backup",
                         blocked_words="password,secret,ssn",
-                        max_prompt_chars=2500,
+                        max_prompt_chars=200000,
                         retention_mode="strict",
                     ),
                 ]
@@ -310,7 +310,7 @@ def seed_demo_data(db: Session):
                 allowed_providers="",
                 denied_providers="",
                 blocked_words="",
-                max_prompt_chars=4000,
+                max_prompt_chars=200000,
                 retention_mode="standard",
             ),
             models.GuardrailPolicyPreset(
@@ -319,7 +319,7 @@ def seed_demo_data(db: Session):
                 allowed_providers="",
                 denied_providers="",
                 blocked_words="",
-                max_prompt_chars=4000,
+                max_prompt_chars=200000,
                 retention_mode="standard",
             ),
             models.GuardrailPolicyPreset(
@@ -328,7 +328,7 @@ def seed_demo_data(db: Session):
                 allowed_providers="provider_primary",
                 denied_providers="provider_backup",
                 blocked_words="password,secret,ssn",
-                max_prompt_chars=2500,
+                max_prompt_chars=200000,
                 retention_mode="strict",
             ),
         ]
@@ -384,7 +384,7 @@ def _get_guardrail_config(db: Session) -> models.GuardrailConfig:
             allowed_providers="",
             denied_providers="",
             blocked_words="",
-            max_prompt_chars=4000,
+            max_prompt_chars=200000,
             retention_mode="standard",
         )
         db.add(config)

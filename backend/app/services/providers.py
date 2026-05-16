@@ -211,7 +211,7 @@ def _execute_openai_compatible_chat_completion(
     url = f"{base_url.rstrip('/')}/chat/completions"
     payload = {
         "model": model.provider_model_name,
-        "messages": [message.model_dump() for message in request.messages],
+        "messages": [message.model_dump(exclude_none=True) for message in request.messages],
     }
     for key in ["temperature", "top_p", "max_tokens", "stop", "tool_choice"]:
         value = getattr(request, key)
