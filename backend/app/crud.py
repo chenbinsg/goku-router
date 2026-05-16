@@ -107,34 +107,34 @@ def ensure_schema(db: Session):
 
     migrations = {
         "request_logs": [
-            ("api_key_label", "ALTER TABLE request_logs ADD COLUMN api_key_label VARCHAR"),
-            ("environment", "ALTER TABLE request_logs ADD COLUMN environment VARCHAR"),
-            ("resolved_model", "ALTER TABLE request_logs ADD COLUMN resolved_model VARCHAR"),
-            ("route_trace_json", "ALTER TABLE request_logs ADD COLUMN route_trace_json VARCHAR"),
-            ("sticky_key", "ALTER TABLE request_logs ADD COLUMN sticky_key VARCHAR"),
-            ("cache_key", "ALTER TABLE request_logs ADD COLUMN cache_key VARCHAR"),
+            ("api_key_label", "ALTER TABLE request_logs ADD COLUMN api_key_label VARCHAR(255)"),
+            ("environment", "ALTER TABLE request_logs ADD COLUMN environment VARCHAR(64)"),
+            ("resolved_model", "ALTER TABLE request_logs ADD COLUMN resolved_model VARCHAR(255)"),
+            ("route_trace_json", "ALTER TABLE request_logs ADD COLUMN route_trace_json TEXT"),
+            ("sticky_key", "ALTER TABLE request_logs ADD COLUMN sticky_key VARCHAR(255)"),
+            ("cache_key", "ALTER TABLE request_logs ADD COLUMN cache_key VARCHAR(255)"),
             ("cache_hit", "ALTER TABLE request_logs ADD COLUMN cache_hit BOOLEAN DEFAULT 0"),
             ("cached_tokens", "ALTER TABLE request_logs ADD COLUMN cached_tokens INTEGER DEFAULT 0"),
             ("reasoning_tokens", "ALTER TABLE request_logs ADD COLUMN reasoning_tokens INTEGER DEFAULT 0"),
             ("provider_reported_cost", "ALTER TABLE request_logs ADD COLUMN provider_reported_cost FLOAT DEFAULT 0"),
             ("response_healed", "ALTER TABLE request_logs ADD COLUMN response_healed BOOLEAN DEFAULT 0"),
-            ("healing_strategy", "ALTER TABLE request_logs ADD COLUMN healing_strategy VARCHAR"),
+            ("healing_strategy", "ALTER TABLE request_logs ADD COLUMN healing_strategy VARCHAR(64)"),
         ],
         "providers": [
             ("input_cost_per_1k", "ALTER TABLE providers ADD COLUMN input_cost_per_1k FLOAT DEFAULT 0.001"),
             ("output_cost_per_1k", "ALTER TABLE providers ADD COLUMN output_cost_per_1k FLOAT DEFAULT 0.002"),
             ("avg_latency_ms", "ALTER TABLE providers ADD COLUMN avg_latency_ms FLOAT DEFAULT 500"),
-            ("capability_tags", "ALTER TABLE providers ADD COLUMN capability_tags VARCHAR DEFAULT 'chat'"),
+            ("capability_tags", "ALTER TABLE providers ADD COLUMN capability_tags VARCHAR(512) DEFAULT 'chat'"),
             ("supports_zdr", "ALTER TABLE providers ADD COLUMN supports_zdr BOOLEAN DEFAULT 0"),
-            ("data_collection_mode", "ALTER TABLE providers ADD COLUMN data_collection_mode VARCHAR DEFAULT 'allow'"),
-            ("supported_parameters", "ALTER TABLE providers ADD COLUMN supported_parameters VARCHAR DEFAULT 'temperature,top_p,max_tokens,stop,tools,tool_choice,response_format'"),
+            ("data_collection_mode", "ALTER TABLE providers ADD COLUMN data_collection_mode VARCHAR(32) DEFAULT 'allow'"),
+            ("supported_parameters", "ALTER TABLE providers ADD COLUMN supported_parameters VARCHAR(512) DEFAULT 'temperature,top_p,max_tokens,stop,tools,tool_choice,response_format'"),
             ("max_input_tokens", "ALTER TABLE providers ADD COLUMN max_input_tokens INTEGER DEFAULT 4096"),
             ("max_output_tokens", "ALTER TABLE providers ADD COLUMN max_output_tokens INTEGER DEFAULT 2048"),
         ],
         "router_api_keys": [
             ("organization_id", "ALTER TABLE router_api_keys ADD COLUMN organization_id INTEGER"),
             ("project_id", "ALTER TABLE router_api_keys ADD COLUMN project_id INTEGER"),
-            ("environment", "ALTER TABLE router_api_keys ADD COLUMN environment VARCHAR"),
+            ("environment", "ALTER TABLE router_api_keys ADD COLUMN environment VARCHAR(64)"),
             ("quota_requests", "ALTER TABLE router_api_keys ADD COLUMN quota_requests INTEGER"),
             ("request_count", "ALTER TABLE router_api_keys ADD COLUMN request_count INTEGER DEFAULT 0"),
             ("expires_at", "ALTER TABLE router_api_keys ADD COLUMN expires_at DATETIME"),
@@ -142,7 +142,7 @@ def ensure_schema(db: Session):
         ],
         "prompt_cache_entries": [
             ("response_healed", "ALTER TABLE prompt_cache_entries ADD COLUMN response_healed BOOLEAN DEFAULT 0"),
-            ("healing_strategy", "ALTER TABLE prompt_cache_entries ADD COLUMN healing_strategy VARCHAR"),
+            ("healing_strategy", "ALTER TABLE prompt_cache_entries ADD COLUMN healing_strategy VARCHAR(64)"),
         ],
     }
     changed = False
@@ -2350,6 +2350,14 @@ def _execute_routed_chat_completion(
     request_id = str(uuid.uuid4())
     last_error = "NO_AVAILABLE_PROVIDER"
     if not candidates:
+        route = db.query(models.RouteRule).filter(models.RouteRule.model_id == request.model).first()
+        if route:
+            raw = [(p, _get_model_mapping(db, request.model, p.id))
+                   for p in [route.preferred_provider, route.backup_provider] if p]
+            raw = [(p, m) for p, m in raw if m]
+            for t in _build_candidate_trace(request, raw, guardrails):
+                logger.warning("NO_AVAILABLE_PROVIDER: provider=%s reject=%s prompt_tokens=%s max_input=%s",
+                    t["provider"], t["reject_reason"], t["estimated_prompt_tokens"], t["max_input_tokens"])
         raise ValueError("NO_AVAILABLE_PROVIDER")
     for index, (provider, model_mapping) in enumerate(candidates):
         cache_entry = _get_prompt_cache_entry(
@@ -2552,24 +2560,36 @@ def create_chat_completion(
         environment=environment,
     )
     result = execution["result"]
+    import time as _time
+
+    # Build OpenAI-compatible message with optional tool_calls
+    msg = schemas.ChatMessageOut(
+        role="assistant",
+        content=result.completion or None,
+        tool_calls=result.tool_calls or None,
+    )
+    finish_reason = "tool_calls" if result.tool_calls else "stop"
+
+    usage = _build_usage(
+        result.prompt_tokens,
+        result.completion_tokens,
+        result.cached_tokens,
+        result.reasoning_tokens,
+        result.provider_reported_cost,
+    )
     return schemas.ChatCompletionResponse(
-        completion=result.completion,
+        id=execution["request_id"],
+        object="chat.completion",
+        created=int(_time.time()),
+        model=execution.get("selected_model") or request.model,
+        choices=[schemas.ChatCompletionChoice(index=0, message=msg, finish_reason=finish_reason)],
+        usage=usage,
         provider=execution["provider"],
         fallback_used=execution["fallback_used"],
-        request_id=execution["request_id"],
         cache_hit=execution.get("cache_hit", False),
         response_healed=result.response_healed,
         healing_strategy=result.healing_strategy,
-        selected_model=execution["selected_model"],
         structured_output=result.structured_output,
-        tool_calls=result.tool_calls,
-        usage=_build_usage(
-            result.prompt_tokens,
-            result.completion_tokens,
-            result.cached_tokens,
-            result.reasoning_tokens,
-            result.provider_reported_cost,
-        ),
     )
 
 
@@ -2581,50 +2601,99 @@ def stream_chat_completion(
     project_id: int | None = None,
     environment: str | None = None,
 ):
-    execution = _execute_routed_chat_completion(
-        db=db,
-        request=request,
-        api_key_label=api_key_label,
-        organization_id=organization_id,
-        project_id=project_id,
-        environment=environment,
-    )
+    import time as _time
+    try:
+        execution = _execute_routed_chat_completion(
+            db=db,
+            request=request,
+            api_key_label=api_key_label,
+            organization_id=organization_id,
+            project_id=project_id,
+            environment=environment,
+        )
+    except ValueError as exc:
+        err_payload = json.dumps({
+            "error": {"message": str(exc), "type": "router_error", "code": "no_available_provider"},
+        })
+        yield f"data: {err_payload}\n\n"
+        yield "data: [DONE]\n\n"
+        return
+    except Exception as exc:
+        err_payload = json.dumps({
+            "error": {"message": str(exc), "type": "router_error", "code": "internal_error"},
+        })
+        yield f"data: {err_payload}\n\n"
+        yield "data: [DONE]\n\n"
+        return
     result = execution["result"]
-    words = result.completion.split(" ")
+    req_id = execution["request_id"]
+    selected_model = execution.get("selected_model") or request.model
+    created = int(_time.time())
+
+    words = result.completion.split(" ") if result.completion else []
     for index, chunk in enumerate(words):
         content = f"{chunk} " if index < len(words) - 1 else chunk
         payload = {
-            "id": execution["request_id"],
+            "id": req_id,
             "object": "chat.completion.chunk",
-            "provider": execution["provider"],
+            "created": created,
+            "model": selected_model,
             "choices": [
                 {
                     "index": 0,
-                    "delta": {"content": content},
+                    "delta": {"role": "assistant", "content": content},
                     "finish_reason": None,
                 }
             ],
         }
         yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
+    # Emit tool_calls as proper OpenAI-compatible delta chunks so clients using
+    # the OpenAI SDK (e.g. AIOS) can accumulate them via delta.tool_calls.
+    if result.tool_calls:
+        for tc_index, tc in enumerate(result.tool_calls):
+            if not isinstance(tc, dict):
+                continue
+            tc_func = tc.get("function") or {}
+            tc_chunk = {
+                "id": req_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": selected_model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": tc_index,
+                                    "id": tc.get("id", f"call_{tc_index}"),
+                                    "type": "function",
+                                    "function": {
+                                        "name": tc_func.get("name", ""),
+                                        "arguments": tc_func.get("arguments", "{}"),
+                                    },
+                                }
+                            ]
+                        },
+                        "finish_reason": None,
+                    }
+                ],
+            }
+            yield f"data: {json.dumps(tc_chunk, ensure_ascii=False)}\n\n"
+
     final_payload = {
-        "id": execution["request_id"],
+        "id": req_id,
         "object": "chat.completion.chunk",
-        "provider": execution["provider"],
-        "fallback_used": execution["fallback_used"],
-        "selected_model": execution["selected_model"],
-        "cache_hit": execution.get("cache_hit", False),
-        "response_healed": result.response_healed,
-        "healing_strategy": result.healing_strategy,
+        "created": created,
+        "model": selected_model,
         "choices": [
             {
                 "index": 0,
                 "delta": {},
-                "finish_reason": "stop",
+                "finish_reason": "tool_calls" if result.tool_calls else "stop",
             }
         ],
-        "tool_calls": result.tool_calls,
-        "structured_output": result.structured_output,
         "usage": _build_usage(
             result.prompt_tokens,
             result.completion_tokens,

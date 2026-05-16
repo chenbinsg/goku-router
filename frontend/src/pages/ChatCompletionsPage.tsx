@@ -169,7 +169,7 @@ const ChatCompletionsPage: React.FC = () => {
         <Form.Item
           label={t('chat.model')}
           name="model"
-          initialValue="model1"
+          initialValue="gpt-4o-mini"
           rules={[{ required: true, message: t('chat.modelRequired') }]}
         >
           <Input />

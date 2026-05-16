@@ -54,18 +54,35 @@ class Usage(BaseModel):
     reasoning_tokens: int = 0
     provider_reported_cost: float = 0.0
 
+class ChatMessageOut(BaseModel):
+    role: str = "assistant"
+    content: Optional[str] = None
+    tool_calls: Optional[List[dict[str, Any]]] = None
+
+
+class ChatCompletionChoice(BaseModel):
+    index: int = 0
+    message: ChatMessageOut
+    finish_reason: str = "stop"
+
+
 class ChatCompletionResponse(BaseModel):
-    completion: str
-    provider: str
-    fallback_used: bool
-    request_id: str
+    """OpenAI-compatible chat completion response."""
+    id: str
+    object: str = "chat.completion"
+    created: int
+    model: str
+    choices: List[ChatCompletionChoice]
+    usage: Usage
+    # Router-specific metadata (extra fields)
+    provider: Optional[str] = None
+    fallback_used: bool = False
     cache_hit: bool = False
     response_healed: bool = False
     healing_strategy: Optional[str] = None
-    selected_model: Optional[str] = None
     structured_output: Optional[Any] = None
-    tool_calls: Optional[List[dict[str, Any]]] = None
-    usage: Usage
+
+    model_config = ConfigDict(populate_by_name=True)
 
 class EmbeddingRequest(BaseModel):
     text: str
