@@ -35,6 +35,8 @@ def _extract_prompt(messages: list[schemas.ChatMessage]) -> str:
 
 
 def _extract_text_content(content: Any) -> str:
+    if content is None:
+        return ""
     if isinstance(content, str):
         return content
     if isinstance(content, list):
