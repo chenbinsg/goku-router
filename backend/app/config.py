@@ -1,6 +1,10 @@
 import os
 
+from dotenv import dotenv_values
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Load .env values into a dict for dynamic lookups (provider credentials etc.)
+_ENV_VALUES: dict[str, str | None] = dotenv_values(".env")
 
 
 class Settings(BaseSettings):
@@ -8,7 +12,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./app.db"
     router_api_keys: str = "demo-router-key"
 
-    model_config = SettingsConfigDict(env_prefix="")
+    model_config = SettingsConfigDict(env_prefix="", env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 
 settings = Settings()
@@ -23,9 +27,11 @@ def provider_env_key(provider_name: str, suffix: str) -> str:
 
 
 def get_provider_runtime_config(provider_name: str) -> dict[str, str | None]:
+    base_url_key = provider_env_key(provider_name, "BASE_URL")
+    api_key_key = provider_env_key(provider_name, "API_KEY")
     return {
-        "base_url": os.getenv(provider_env_key(provider_name, "BASE_URL")),
-        "api_key": os.getenv(provider_env_key(provider_name, "API_KEY")),
+        "base_url": os.getenv(base_url_key) or _ENV_VALUES.get(base_url_key),
+        "api_key": os.getenv(api_key_key) or _ENV_VALUES.get(api_key_key),
     }
 
 
