@@ -334,8 +334,8 @@ def create_embedding(
 @app.get("/v1/models", response_model=schemas.ModelListResponse)
 def list_models(
     db: Session = Depends(get_db),
-    _: None = Depends(require_api_key),
 ):
+    """Public endpoint — no API key required to browse the model catalog."""
     return crud.get_models(db=db)
 
 @app.get("/admin/billing/export")
