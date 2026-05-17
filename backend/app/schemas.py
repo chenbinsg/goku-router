@@ -705,3 +705,85 @@ class FeedbackRequest(BaseModel):
 class FeedbackResponse(BaseModel):
     request_id: str
     recorded: bool
+
+
+# ── v1.2.0: Billing Invoice ───────────────────────────────────────────────────
+
+class BillingInvoiceItem(BaseModel):
+    project_id: Optional[int] = None
+    api_key_name: Optional[str] = None
+    model: Optional[str] = None
+    provider: Optional[str] = None
+    request_count: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cached_tokens: int = 0
+    cost_usd: float = 0.0
+    upstream_cost_usd: float = 0.0
+
+
+class BillingInvoiceResponse(BaseModel):
+    organization_id: Optional[int] = None
+    year_month: str
+    total_cost_usd: float
+    total_requests: int
+    items: List[BillingInvoiceItem]
+
+
+# ── v1.2.0: Token Usage Dashboard ─────────────────────────────────────────────
+
+class DailyTokenUsage(BaseModel):
+    date: str           # "2026-05-17"
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cached_tokens: int = 0
+    cost_usd: float = 0.0
+    request_count: int = 0
+
+
+class TokenUsageDashboard(BaseModel):
+    period: str         # "daily" | "weekly" | "monthly"
+    organization_id: Optional[int] = None
+    total_prompt_tokens: int = 0
+    total_completion_tokens: int = 0
+    total_cached_tokens: int = 0
+    total_cost_usd: float = 0.0
+    total_requests: int = 0
+    by_day: List[DailyTokenUsage] = []
+    by_model: List[dict] = []
+    by_provider: List[dict] = []
+    top_expensive_requests: List[dict] = []
+    quota_progress: List[dict] = []       # per API key: used / limit
+    wow_cost_change_pct: Optional[float] = None   # week-over-week %
+
+
+# ── v1.2.0: Anomaly Threshold Config ──────────────────────────────────────────
+
+class AnomalyThresholdConfigItem(BaseModel):
+    id: Optional[int] = None
+    organization_id: Optional[int] = None
+    provider_failure_rate_pct: float = 25.0
+    provider_latency_ms: float = 600.0
+    workspace_fallback_rate_pct: float = 30.0
+    cost_spike_multiplier: float = 3.0
+    token_spike_multiplier: float = 2.5
+    rolling_window_days: int = 7
+    updated_at: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AnomalyThresholdConfigUpdate(BaseModel):
+    provider_failure_rate_pct: Optional[float] = None
+    provider_latency_ms: Optional[float] = None
+    workspace_fallback_rate_pct: Optional[float] = None
+    cost_spike_multiplier: Optional[float] = None
+    token_spike_multiplier: Optional[float] = None
+    rolling_window_days: Optional[int] = None
+
+
+# ── v1.2.0: Log Search ────────────────────────────────────────────────────────
+
+class LogRetentionResult(BaseModel):
+    deleted_rows: int
+    retention_days: int

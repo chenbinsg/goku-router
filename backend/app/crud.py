@@ -4167,3 +4167,342 @@ def record_request_feedback(db: Session, payload: schemas.FeedbackRequest) -> di
     )
     db.commit()
     return {"request_id": payload.request_id, "recorded": True}
+
+
+# ── v1.2.0: Billing Invoice ────────────────────────────────────────────────────
+
+def get_billing_invoice(
+    db: Session,
+    org_id: int | None,
+    month: str | None,
+) -> schemas.BillingInvoiceResponse:
+    """
+    Build a billing invoice for a given org + month.
+    First tries MonthlyBillingSummary (if the rollup job has run),
+    then falls back to aggregating BillingRecord directly (mid-month).
+    """
+    from datetime import datetime, UTC
+
+    if month is None:
+        month = datetime.now(UTC).strftime("%Y-%m")
+
+    # Try pre-rolled summaries first
+    q = db.query(models.MonthlyBillingSummary).filter(
+        models.MonthlyBillingSummary.year_month == month
+    )
+    if org_id is not None:
+        q = q.filter(models.MonthlyBillingSummary.organization_id == org_id)
+    summaries = q.all()
+
+    if summaries:
+        items = [
+            schemas.BillingInvoiceItem(
+                project_id=s.project_id,
+                api_key_name=None,
+                model=s.model,
+                provider=s.provider,
+                request_count=s.request_count,
+                prompt_tokens=s.prompt_tokens,
+                completion_tokens=s.completion_tokens,
+                cached_tokens=s.cached_tokens,
+                cost_usd=s.cost_usd,
+                upstream_cost_usd=s.upstream_cost_usd,
+            )
+            for s in summaries
+        ]
+        total_cost = sum(i.cost_usd for i in items)
+        total_req = sum(i.request_count for i in items)
+        return schemas.BillingInvoiceResponse(
+            organization_id=org_id,
+            year_month=month,
+            total_cost_usd=round(total_cost, 6),
+            total_requests=total_req,
+            items=items,
+        )
+
+    # Fallback: aggregate BillingRecord directly
+    try:
+        year, mon = int(month[:4]), int(month[5:7])
+    except (ValueError, IndexError):
+        year, mon = datetime.now(UTC).year, datetime.now(UTC).month
+
+    month_start = datetime(year, mon, 1)
+    if mon == 12:
+        month_end = datetime(year + 1, 1, 1)
+    else:
+        month_end = datetime(year, mon + 1, 1)
+
+    query = db.query(models.BillingRecord).filter(
+        models.BillingRecord.date >= month_start,
+        models.BillingRecord.date < month_end,
+    )
+    if org_id is not None:
+        query = query.filter(models.BillingRecord.organization_id == org_id)
+    records = query.all()
+
+    grouped: dict[tuple, dict] = {}
+    for r in records:
+        key = (r.project_id, r.api_key_name or "", r.model or "", r.provider or "")
+        if key not in grouped:
+            grouped[key] = {
+                "project_id": r.project_id,
+                "api_key_name": r.api_key_name,
+                "model": r.model,
+                "provider": r.provider,
+                "request_count": 0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "cached_tokens": 0,
+                "cost_usd": 0.0,
+                "upstream_cost_usd": 0.0,
+            }
+        g = grouped[key]
+        g["request_count"] += 1
+        g["prompt_tokens"] += r.prompt_tokens or 0
+        g["completion_tokens"] += r.completion_tokens or 0
+        g["cached_tokens"] += r.cached_tokens or 0
+        g["cost_usd"] = round(g["cost_usd"] + (r.cost_usd or 0.0), 6)
+        g["upstream_cost_usd"] = round(g["upstream_cost_usd"] + (r.upstream_cost_usd or 0.0), 6)
+
+    items = [schemas.BillingInvoiceItem(**v) for v in grouped.values()]
+    total_cost = sum(i.cost_usd for i in items)
+    total_req = sum(i.request_count for i in items)
+    return schemas.BillingInvoiceResponse(
+        organization_id=org_id,
+        year_month=month,
+        total_cost_usd=round(total_cost, 6),
+        total_requests=total_req,
+        items=items,
+    )
+
+
+# ── v1.2.0: Token Usage Dashboard ─────────────────────────────────────────────
+
+def get_token_usage_dashboard(
+    db: Session,
+    period: str,
+    org_id: int | None,
+    days: int,
+) -> schemas.TokenUsageDashboard:
+    from datetime import datetime, UTC, timedelta
+
+    now = datetime.now(UTC)
+    window_start = now - timedelta(days=days)
+
+    query = db.query(models.BillingRecord).filter(
+        models.BillingRecord.date >= window_start,
+    )
+    if org_id is not None:
+        query = query.filter(models.BillingRecord.organization_id == org_id)
+    records = query.all()
+
+    # Totals
+    total_prompt = sum(r.prompt_tokens or 0 for r in records)
+    total_completion = sum(r.completion_tokens or 0 for r in records)
+    total_cached = sum(r.cached_tokens or 0 for r in records)
+    total_cost = round(sum(r.cost_usd or 0 for r in records), 6)
+    total_requests = len(records)
+
+    # By day
+    daily: dict[str, dict] = {}
+    for r in records:
+        d = r.date.strftime("%Y-%m-%d") if r.date else "unknown"
+        if d not in daily:
+            daily[d] = {"date": d, "prompt_tokens": 0, "completion_tokens": 0,
+                        "cached_tokens": 0, "cost_usd": 0.0, "request_count": 0}
+        daily[d]["prompt_tokens"] += r.prompt_tokens or 0
+        daily[d]["completion_tokens"] += r.completion_tokens or 0
+        daily[d]["cached_tokens"] += r.cached_tokens or 0
+        daily[d]["cost_usd"] = round(daily[d]["cost_usd"] + (r.cost_usd or 0), 6)
+        daily[d]["request_count"] += 1
+    by_day = [schemas.DailyTokenUsage(**v) for v in sorted(daily.values(), key=lambda x: x["date"])]
+
+    # By model
+    by_model_d: dict[str, dict] = {}
+    for r in records:
+        m = r.model or "unknown"
+        if m not in by_model_d:
+            by_model_d[m] = {"model": m, "prompt_tokens": 0, "completion_tokens": 0,
+                              "cost_usd": 0.0, "request_count": 0}
+        by_model_d[m]["prompt_tokens"] += r.prompt_tokens or 0
+        by_model_d[m]["completion_tokens"] += r.completion_tokens or 0
+        by_model_d[m]["cost_usd"] = round(by_model_d[m]["cost_usd"] + (r.cost_usd or 0), 6)
+        by_model_d[m]["request_count"] += 1
+    by_model = sorted(by_model_d.values(), key=lambda x: x["cost_usd"], reverse=True)
+
+    # By provider
+    by_prov_d: dict[str, dict] = {}
+    for r in records:
+        p = r.provider or "unknown"
+        if p not in by_prov_d:
+            by_prov_d[p] = {"provider": p, "prompt_tokens": 0, "completion_tokens": 0,
+                             "cost_usd": 0.0, "request_count": 0}
+        by_prov_d[p]["prompt_tokens"] += r.prompt_tokens or 0
+        by_prov_d[p]["completion_tokens"] += r.completion_tokens or 0
+        by_prov_d[p]["cost_usd"] = round(by_prov_d[p]["cost_usd"] + (r.cost_usd or 0), 6)
+        by_prov_d[p]["request_count"] += 1
+    by_provider = sorted(by_prov_d.values(), key=lambda x: x["cost_usd"], reverse=True)
+
+    # Top 10 most expensive requests (from RequestLog for richer context)
+    top_logs = (
+        db.query(models.RequestLog)
+        .filter(models.RequestLog.cost_amount > 0)
+        .order_by(models.RequestLog.cost_amount.desc())
+        .limit(10)
+        .all()
+    )
+    top_expensive = [
+        {
+            "request_id": r.request_id,
+            "model": r.requested_model,
+            "provider": r.provider_name,
+            "cost_usd": r.cost_amount,
+            "prompt_tokens": r.prompt_tokens,
+            "completion_tokens": r.completion_tokens,
+        }
+        for r in top_logs
+    ]
+
+    # Quota progress per API key
+    api_keys = db.query(models.RouterApiKey).filter(
+        models.RouterApiKey.status == "active"
+    ).all()
+    if org_id is not None:
+        api_keys = [k for k in api_keys if k.organization_id == org_id]
+    quota_progress = []
+    for k in api_keys:
+        if k.quota_spend_usd or k.quota_requests:
+            quota_progress.append({
+                "api_key_name": k.name,
+                "spend_used": k.spend_usd,
+                "spend_limit": k.quota_spend_usd,
+                "requests_used": k.request_count,
+                "requests_limit": k.quota_requests,
+            })
+
+    # Week-over-week cost change
+    wow_pct = None
+    if days >= 14:
+        prev_start = window_start - timedelta(days=days)
+        prev_records = db.query(models.BillingRecord).filter(
+            models.BillingRecord.date >= prev_start,
+            models.BillingRecord.date < window_start,
+        ).all()
+        if org_id is not None:
+            prev_records = [r for r in prev_records if r.organization_id == org_id]
+        prev_cost = sum(r.cost_usd or 0 for r in prev_records)
+        if prev_cost > 0:
+            wow_pct = round((total_cost - prev_cost) / prev_cost * 100, 2)
+
+    return schemas.TokenUsageDashboard(
+        period=period,
+        organization_id=org_id,
+        total_prompt_tokens=total_prompt,
+        total_completion_tokens=total_completion,
+        total_cached_tokens=total_cached,
+        total_cost_usd=total_cost,
+        total_requests=total_requests,
+        by_day=by_day,
+        by_model=by_model,
+        by_provider=by_provider,
+        top_expensive_requests=top_expensive,
+        quota_progress=quota_progress,
+        wow_cost_change_pct=wow_pct,
+    )
+
+
+# ── v1.2.0: Anomaly Threshold Config ──────────────────────────────────────────
+
+def list_anomaly_threshold_configs(db: Session) -> list:
+    return db.query(models.AnomalyThresholdConfig).all()
+
+
+def upsert_anomaly_threshold_config(
+    db: Session,
+    org_id: int | None,
+    payload: schemas.AnomalyThresholdConfigUpdate,
+) -> models.AnomalyThresholdConfig:
+    cfg = db.query(models.AnomalyThresholdConfig).filter(
+        models.AnomalyThresholdConfig.organization_id == org_id
+    ).first()
+    if cfg is None:
+        cfg = models.AnomalyThresholdConfig(
+            organization_id=org_id,
+            updated_at=datetime.now(UTC),
+        )
+        db.add(cfg)
+
+    for field, val in payload.model_dump(exclude_none=True).items():
+        setattr(cfg, field, val)
+    cfg.updated_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(cfg)
+    return cfg
+
+
+# ── v1.2.0: Log Search ────────────────────────────────────────────────────────
+
+def search_request_logs(
+    db: Session,
+    q: str | None,
+    model: str | None,
+    provider: str | None,
+    from_dt: str | None,
+    to_dt: str | None,
+    org_id: int | None,
+    limit: int,
+    offset: int,
+) -> dict:
+    from datetime import datetime, UTC
+
+    query = db.query(models.RequestLog)
+
+    if q:
+        like = f"%{q}%"
+        query = query.filter(
+            (models.RequestLog.request_id.like(like)) |
+            (models.RequestLog.api_key_label.like(like)) |
+            (models.RequestLog.requested_model.like(like))
+        )
+    if model:
+        query = query.filter(models.RequestLog.requested_model.like(f"%{model}%"))
+    if provider:
+        query = query.filter(models.RequestLog.provider_name.like(f"%{provider}%"))
+    if org_id is not None:
+        query = query.filter(models.RequestLog.organization_id == org_id)
+    if from_dt:
+        try:
+            dt = datetime.fromisoformat(from_dt.replace("Z", "+00:00"))
+            query = query.filter(models.RequestLog.id >= 0)  # id placeholder; use raw SQL below
+        except ValueError:
+            pass
+
+    total = query.count()
+    rows = query.order_by(models.RequestLog.id.desc()).offset(offset).limit(limit).all()
+
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "items": [
+            {
+                "id": r.id,
+                "request_id": r.request_id,
+                "api_key_label": r.api_key_label,
+                "organization_id": r.organization_id,
+                "project_id": r.project_id,
+                "requested_model": r.requested_model,
+                "resolved_model": r.resolved_model,
+                "provider_name": r.provider_name,
+                "status_code": r.status_code,
+                "latency": r.latency,
+                "prompt_tokens": r.prompt_tokens,
+                "completion_tokens": r.completion_tokens,
+                "cost_amount": r.cost_amount,
+                "cache_hit": r.cache_hit,
+                "fallback_used": r.fallback_used,
+                "error_code": r.error_code,
+            }
+            for r in rows
+        ],
+    }

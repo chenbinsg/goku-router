@@ -188,6 +188,38 @@ class GuardrailConfig(Base):
     retention_mode = Column(String(64), nullable=False, default="standard")
 
 
+class MonthlyBillingSummary(Base):
+    """APScheduler rollup: one row per (org, project, model, provider) per month. (v1.2.0)"""
+    __tablename__ = "monthly_billing_summaries"
+    id = Column(Integer, primary_key=True, index=True)
+    year_month = Column(String(7), nullable=False, index=True)   # "2026-05"
+    organization_id = Column(Integer, ForeignKey('organizations.id'), nullable=True)
+    project_id = Column(Integer, ForeignKey('projects.id'), nullable=True)
+    model = Column(String(255), nullable=True)
+    provider = Column(String(255), nullable=True)
+    request_count = Column(Integer, nullable=False, default=0)
+    prompt_tokens = Column(Integer, nullable=False, default=0)
+    completion_tokens = Column(Integer, nullable=False, default=0)
+    cached_tokens = Column(Integer, nullable=False, default=0)
+    cost_usd = Column(Float, nullable=False, default=0.0)
+    upstream_cost_usd = Column(Float, nullable=False, default=0.0)
+    rolled_up_at = Column(DateTime, nullable=False)
+
+
+class AnomalyThresholdConfig(Base):
+    """Per-org configurable anomaly detection thresholds. (v1.2.0)"""
+    __tablename__ = "anomaly_threshold_configs"
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey('organizations.id'), nullable=True, unique=True)
+    provider_failure_rate_pct = Column(Float, nullable=False, default=25.0)
+    provider_latency_ms = Column(Float, nullable=False, default=600.0)
+    workspace_fallback_rate_pct = Column(Float, nullable=False, default=30.0)
+    cost_spike_multiplier = Column(Float, nullable=False, default=3.0)
+    token_spike_multiplier = Column(Float, nullable=False, default=2.5)
+    rolling_window_days = Column(Integer, nullable=False, default=7)
+    updated_at = Column(DateTime, nullable=False)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     id = Column(Integer, primary_key=True, index=True)

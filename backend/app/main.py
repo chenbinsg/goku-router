@@ -11,12 +11,15 @@ from . import models, schemas, crud
 from .config import get_allowed_router_api_keys
 from .db import SessionLocal, engine
 from .services.circuit_breaker import circuit_breakers
+from .services.scheduler import start_scheduler, stop_scheduler
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     models.Base.metadata.create_all(bind=engine)
+    start_scheduler()
     yield
+    stop_scheduler()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -496,6 +499,147 @@ def submit_feedback(
         return crud.record_request_feedback(db=db, payload=payload)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+# ── v1.2.0: Billing Invoice ───────────────────────────────────────────────────
+
+@app.get("/admin/billing/invoice", response_model=schemas.BillingInvoiceResponse)
+def get_billing_invoice(
+    org_id: int | None = None,
+    month: str | None = None,   # "2026-05" — defaults to current month
+    db: Session = Depends(get_db),
+):
+    """
+    Return a billing invoice for an org for a given month.
+    Falls back to live BillingRecord aggregation when the monthly rollup job hasn't
+    run yet (e.g. mid-month queries).
+    """
+    return crud.get_billing_invoice(db=db, org_id=org_id, month=month)
+
+
+@app.get("/admin/billing/invoice/export")
+def export_billing_invoice_csv(
+    org_id: int | None = None,
+    month: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """Download the billing invoice as a CSV file."""
+    import csv, io
+    invoice = crud.get_billing_invoice(db=db, org_id=org_id, month=month)
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=[
+        "project_id", "api_key_name", "model", "provider",
+        "request_count", "prompt_tokens", "completion_tokens", "cached_tokens",
+        "cost_usd", "upstream_cost_usd",
+    ])
+    writer.writeheader()
+    for item in invoice.items:
+        writer.writerow(item.model_dump())
+    content = buf.getvalue()
+    filename = f"invoice_{invoice.year_month}{'_org' + str(org_id) if org_id else ''}.csv"
+    from fastapi.responses import Response
+    return Response(
+        content=content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ── v1.2.0: Token Usage Dashboard ─────────────────────────────────────────────
+
+@app.get("/admin/analytics/token-usage", response_model=schemas.TokenUsageDashboard)
+def get_token_usage_dashboard(
+    period: str = "daily",          # "daily" | "weekly" | "monthly"
+    org_id: int | None = None,
+    days: int = 7,
+    db: Session = Depends(get_db),
+):
+    """
+    Token usage dashboard: daily burn by model/provider/org, quota progress,
+    week-over-week cost change, top-10 most expensive requests.
+    """
+    return crud.get_token_usage_dashboard(db=db, period=period, org_id=org_id, days=days)
+
+
+# ── v1.2.0: Anomaly Threshold Config ──────────────────────────────────────────
+
+@app.get("/admin/anomaly-thresholds", response_model=list[schemas.AnomalyThresholdConfigItem])
+def list_anomaly_thresholds(db: Session = Depends(get_db)):
+    """List all anomaly threshold configs (global + per-org overrides)."""
+    return crud.list_anomaly_threshold_configs(db=db)
+
+
+@app.put("/admin/anomaly-thresholds", response_model=schemas.AnomalyThresholdConfigItem)
+def upsert_anomaly_threshold(
+    payload: schemas.AnomalyThresholdConfigUpdate,
+    org_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    """Create or update anomaly thresholds for the global config (org_id=None) or a specific org."""
+    return crud.upsert_anomaly_threshold_config(db=db, org_id=org_id, payload=payload)
+
+
+# ── v1.2.0: Log Search & Retention ────────────────────────────────────────────
+
+@app.get("/admin/logs")
+def search_logs(
+    q: str | None = None,
+    model: str | None = None,
+    provider: str | None = None,
+    from_dt: str | None = None,   # ISO-8601 or "2026-05-01"
+    to_dt: str | None = None,
+    org_id: int | None = None,
+    limit: int = 100,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
+    """
+    Search request logs. Supports free-text search on request_id/api_key_label,
+    filter by model/provider/org and time window.
+    """
+    return crud.search_request_logs(
+        db=db, q=q, model=model, provider=provider,
+        from_dt=from_dt, to_dt=to_dt, org_id=org_id,
+        limit=limit, offset=offset,
+    )
+
+
+@app.post("/admin/logs/enforce-retention", response_model=schemas.LogRetentionResult)
+def enforce_retention_now(db: Session = Depends(get_db)):
+    """Trigger log retention enforcement immediately (normally runs daily at 02:00 UTC)."""
+    from .services.scheduler import enforce_log_retention
+    enforce_log_retention()
+    return schemas.LogRetentionResult(deleted_rows=0, retention_days=int(os.getenv("LOG_RETENTION_DAYS", "90")))
+
+
+# ── v1.2.0: Monthly Billing Summaries ─────────────────────────────────────────
+
+@app.get("/admin/billing/summaries")
+def list_monthly_billing_summaries(
+    org_id: int | None = None,
+    year_month: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """List pre-rolled monthly billing summaries."""
+    query = db.query(models.MonthlyBillingSummary)
+    if org_id is not None:
+        query = query.filter(models.MonthlyBillingSummary.organization_id == org_id)
+    if year_month:
+        query = query.filter(models.MonthlyBillingSummary.year_month == year_month)
+    rows = query.order_by(models.MonthlyBillingSummary.year_month.desc()).limit(200).all()
+    return [
+        {
+            "id": r.id, "year_month": r.year_month,
+            "organization_id": r.organization_id, "project_id": r.project_id,
+            "model": r.model, "provider": r.provider,
+            "request_count": r.request_count,
+            "prompt_tokens": r.prompt_tokens, "completion_tokens": r.completion_tokens,
+            "cached_tokens": r.cached_tokens,
+            "cost_usd": r.cost_usd, "upstream_cost_usd": r.upstream_cost_usd,
+            "rolled_up_at": r.rolled_up_at.isoformat() if r.rolled_up_at else None,
+        }
+        for r in rows
+    ]
 
 
 if __name__ == "__main__":
