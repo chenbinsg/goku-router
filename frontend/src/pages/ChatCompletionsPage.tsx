@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { Alert, Button, Card, Checkbox, Descriptions, Form, Input, InputNumber, Space, Typography, message } from 'antd';
 import { createChatCompletion, createChatCompletionStream } from '../api';
 import { ChatCompletionResponse } from '../types';
@@ -37,19 +37,6 @@ const ChatCompletionsPage: React.FC = () => {
   const { t } = useI18n();
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ChatCompletionResponse | null>(null);
-  const [showMonkey, setShowMonkey] = useState(false);
-  const monkeyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (result) {
-      setShowMonkey(true);
-      if (monkeyTimer.current) clearTimeout(monkeyTimer.current);
-      // 跑两圈后消失（每圈 8s，跑 2 圈 = 16s）
-      monkeyTimer.current = setTimeout(() => setShowMonkey(false), 16000);
-    }
-  }, [result]);
-
-  useEffect(() => () => { if (monkeyTimer.current) clearTimeout(monkeyTimer.current); }, []);
 
   const onFinish = async (values: ChatCompletionFormValues) => {
     setLoading(true);
@@ -189,7 +176,7 @@ const ChatCompletionsPage: React.FC = () => {
   return (
     <>
     <style>{rollingKeyframes}</style>
-    {showMonkey && (
+    {loading && (
       <img
         src="/logo.png"
         alt=""
@@ -200,7 +187,7 @@ const ChatCompletionsPage: React.FC = () => {
           width: 52,
           height: 52,
           objectFit: 'contain',
-          animation: 'monkeyRoll 8s linear 2',
+          animation: 'monkeyRoll 8s linear infinite',
           pointerEvents: 'none',
           zIndex: 9999,
         }}
