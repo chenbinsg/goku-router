@@ -690,3 +690,18 @@ class RouteReplayResponse(BaseModel):
     changed_routes: int
     unchanged_routes: int
     items: List[RouteReplayItem]
+
+
+
+# ── Feedback (v0.7 foundation) ─────────────────────────────────────────────────
+
+class FeedbackRequest(BaseModel):
+    request_id: str
+    rating: Optional[int] = None          # 1–5 star rating
+    success: Optional[bool] = None        # task-level success from calling app
+    notes: Optional[str] = None
+
+
+class FeedbackResponse(BaseModel):
+    request_id: str
+    recorded: bool

@@ -39,6 +39,12 @@ class WorkspaceGuardrailConfig(Base):
     allowed_providers = Column(Text, nullable=True)
     denied_providers = Column(Text, nullable=True)
     blocked_words = Column(Text, nullable=True)
+    blocked_response_words = Column(Text, nullable=True)   # v0.5: response-side filter
+    regex_patterns = Column(Text, nullable=True)           # v0.5: request regex patterns (JSON array)
+    response_regex_patterns = Column(Text, nullable=True)  # v0.5: response regex patterns (JSON array)
+    detect_pii = Column(Boolean, nullable=False, default=False)  # v0.5: enable PII detection
+    log_prompt = Column(Boolean, nullable=False, default=True)   # v0.5: store prompt in logs
+    log_completion = Column(Boolean, nullable=False, default=True)  # v0.5: store completion in logs
     max_prompt_chars = Column(Integer, nullable=True)
     retention_mode = Column(String(64), nullable=True)
 
@@ -62,12 +68,16 @@ class Provider(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), unique=True, index=True, nullable=False)
     adapter_type = Column(String(64), nullable=False, default="mock")
+    host_type = Column(String(32), nullable=False, default="external")   # v0.4: "internal" | "external"
+    region = Column(String(64), nullable=True)                           # v0.4: e.g. "jp-east-1"
     status = Column(String(32), nullable=False, default="active")
     health_status = Column(String(32), nullable=False, default="healthy")
+    circuit_breaker_state = Column(String(32), nullable=False, default="closed")  # v0.4
     priority = Column(Integer, nullable=False, default=100)
     input_cost_per_1k = Column(Float, nullable=False, default=0.001)
     output_cost_per_1k = Column(Float, nullable=False, default=0.002)
     avg_latency_ms = Column(Float, nullable=False, default=500.0)
+    latency_ema_alpha = Column(Float, nullable=False, default=0.1)  # v0.4: EMA smoothing factor
     capability_tags = Column(String(512), nullable=False, default="chat")
     supports_zdr = Column(Boolean, nullable=False, default=False)
     data_collection_mode = Column(String(32), nullable=False, default="allow")
@@ -89,7 +99,9 @@ class RouterApiKey(Base):
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
     environment = Column(String(64), nullable=True)
     quota_requests = Column(Integer, nullable=True)
+    quota_spend_usd = Column(Float, nullable=True)        # v0.3: max cumulative spend
     request_count = Column(Integer, nullable=False, default=0)
+    spend_usd = Column(Float, nullable=False, default=0.0)  # v0.3: cumulative spend tracker
     expires_at = Column(DateTime, nullable=True)
     rotated_from_key_id = Column(Integer, ForeignKey("router_api_keys.id"), nullable=True)
 
@@ -146,12 +158,24 @@ class RequestLog(Base):
     route_trace_json = Column(Text, nullable=True)
 
 class BillingRecord(Base):
+    """One row per completed LLM request. Written by crud._write_billing_record()."""
     __tablename__ = "billing_records"
     id = Column(Integer, primary_key=True, index=True)
-    organization_id = Column(Integer, ForeignKey('organizations.id'))
-    project_id = Column(Integer, ForeignKey('projects.id'))
-    amount = Column(Float)
-    date = Column(DateTime)
+    request_id = Column(String(255), index=True, nullable=False)
+    api_key_name = Column(String(255), nullable=True)
+    organization_id = Column(Integer, ForeignKey('organizations.id'), nullable=True)
+    project_id = Column(Integer, ForeignKey('projects.id'), nullable=True)
+    environment = Column(String(64), nullable=True)
+    model = Column(String(255), nullable=True)
+    provider = Column(String(255), nullable=True)
+    prompt_tokens = Column(Integer, nullable=False, default=0)
+    completion_tokens = Column(Integer, nullable=False, default=0)
+    cached_tokens = Column(Integer, nullable=False, default=0)
+    cost_usd = Column(Float, nullable=False, default=0.0)
+    upstream_cost_usd = Column(Float, nullable=False, default=0.0)
+    cache_hit = Column(Boolean, nullable=False, default=False)
+    fallback_used = Column(Boolean, nullable=False, default=False)
+    date = Column(DateTime, nullable=False)
 
 
 class GuardrailConfig(Base):

@@ -1,14 +1,31 @@
+"""
+Provider execution layer.
+
+Adapters:
+  mock              — echo responses for local testing
+  openai_compatible — OpenAI-compatible HTTP API (covers OpenAI, Anthropic via proxy,
+                      vLLM, Ollama, LM Studio, DeepSeek, Qwen, etc.)
+
+v0.3: Real token counting via tiktoken
+v0.4: Circuit breaker integration + live latency EMA updates
+"""
 from __future__ import annotations
 
+import time
+import logging
 from dataclasses import dataclass
-import json
 from typing import Any
+import json
 
 import httpx
 
 from .. import schemas
 from ..config import get_provider_runtime_config
 from ..models import ModelCatalog, Provider
+from .token_counter import count_messages_tokens, count_tokens
+from .circuit_breaker import circuit_breakers
+
+logger = logging.getLogger(__name__)
 
 
 class ProviderExecutionError(Exception):
@@ -21,6 +38,7 @@ class ProviderResult:
     prompt_tokens: int
     completion_tokens: int
     cost_amount: float
+    latency_ms: float = 0.0
     cached_tokens: int = 0
     reasoning_tokens: int = 0
     provider_reported_cost: float = 0.0
@@ -29,6 +47,8 @@ class ProviderResult:
     response_healed: bool = False
     healing_strategy: str | None = None
 
+
+# ── Text extraction helpers ────────────────────────────────────────────────────
 
 def _extract_prompt(messages: list[schemas.ChatMessage]) -> str:
     return "\n".join(_extract_text_content(message.content) for message in messages)
@@ -47,6 +67,8 @@ def _extract_text_content(content: Any) -> str:
         return "\n".join(part for part in parts if part)
     return str(content)
 
+
+# ── Structured output repair ───────────────────────────────────────────────────
 
 def _generate_schema_value(schema: dict[str, Any], seed_text: str, provider_name: str) -> Any:
     schema_type = schema.get("type", "object")
@@ -120,10 +142,7 @@ def _parse_or_repair_structured_output(
                 return json.dumps(parsed, ensure_ascii=False), parsed, False, None
         except json.JSONDecodeError:
             pass
-        repaired = {
-            "answer": completion,
-            "provider": provider_name,
-        }
+        repaired = {"answer": completion, "provider": provider_name}
         return json.dumps(repaired, ensure_ascii=False), repaired, True, "json_object_wrap"
 
     if request.response_format.type == "json_schema":
@@ -160,6 +179,8 @@ def _build_mock_tool_calls(
     ]
 
 
+# ── Mock adapter ───────────────────────────────────────────────────────────────
+
 def _execute_mock_chat_completion(
     provider: Provider,
     model: ModelCatalog,
@@ -167,19 +188,20 @@ def _execute_mock_chat_completion(
     prompt: str,
 ) -> ProviderResult:
     last_message = _extract_text_content(request.messages[-1].content) if request.messages else ""
-    completion = (
-        f"[{provider.name}] {model.provider_model_name}: "
-        f"Echo: {last_message}"
-    )
+    completion = f"[{provider.name}] {model.provider_model_name}: Echo: {last_message}"
     tool_calls = _build_mock_tool_calls(request, prompt)
     completion, structured_output, response_healed, healing_strategy = _parse_or_repair_structured_output(
-        request=request,
-        completion=completion,
-        provider_name=provider.name,
+        request=request, completion=completion, provider_name=provider.name,
     )
-    prompt_tokens = max(len(prompt.split()), 1)
-    completion_tokens = max(len(completion.split()), 1)
-    cost_amount = round((prompt_tokens + completion_tokens) * 0.00001, 6)
+    # Real token counting (v0.3)
+    messages_dicts = [m.model_dump(exclude_none=True) for m in request.messages]
+    prompt_tokens = count_messages_tokens(messages_dicts, model="gpt-4o")
+    completion_tokens = count_tokens(completion, model="gpt-4o")
+    cost_amount = round(
+        (prompt_tokens / 1000) * provider.input_cost_per_1k
+        + (completion_tokens / 1000) * provider.output_cost_per_1k,
+        6,
+    )
     return ProviderResult(
         completion=completion,
         prompt_tokens=prompt_tokens,
@@ -195,6 +217,8 @@ def _execute_mock_chat_completion(
     )
 
 
+# ── OpenAI-compatible adapter (covers vLLM, Ollama, OpenAI, DeepSeek, etc.) ───
+
 def _execute_openai_compatible_chat_completion(
     provider: Provider,
     model: ModelCatalog,
@@ -209,7 +233,7 @@ def _execute_openai_compatible_chat_completion(
         )
 
     url = f"{base_url.rstrip('/')}/chat/completions"
-    payload = {
+    payload: dict[str, Any] = {
         "model": model.provider_model_name,
         "messages": [message.model_dump(exclude_none=True) for message in request.messages],
     }
@@ -221,12 +245,17 @@ def _execute_openai_compatible_chat_completion(
         payload["tools"] = [tool.model_dump() for tool in request.tools]
     if request.response_format is not None:
         payload["response_format"] = request.response_format.model_dump(exclude_none=True)
+
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
+
+    # Determine timeout: internal providers (local network) use shorter timeout
+    timeout = 15.0 if getattr(provider, "host_type", "external") == "internal" else 30.0
+
     try:
-        response = httpx.post(url, json=payload, headers=headers, timeout=30.0)
+        response = httpx.post(url, json=payload, headers=headers, timeout=timeout)
         response.raise_for_status()
     except httpx.HTTPError as exc:
         raise ProviderExecutionError(
@@ -244,9 +273,7 @@ def _execute_openai_compatible_chat_completion(
     completion = _extract_text_content(message.get("content", ""))
     tool_calls = message.get("tool_calls")
     completion, structured_output, response_healed, healing_strategy = _parse_or_repair_structured_output(
-        request=request,
-        completion=completion,
-        provider_name=provider.name,
+        request=request, completion=completion, provider_name=provider.name,
     )
     usage = data.get("usage") or {}
     prompt_tokens = int(usage.get("prompt_tokens") or 0)
@@ -261,20 +288,19 @@ def _execute_openai_compatible_chat_completion(
         or usage.get("completion_tokens_details", {}).get("reasoning_tokens")
         or 0
     )
-    provider_reported_cost = float(
-        usage.get("cost")
-        or data.get("cost")
-        or 0.0
-    )
+    provider_reported_cost = float(usage.get("cost") or data.get("cost") or 0.0)
+
+    # Fallback to tiktoken if provider didn't report usage (v0.3)
     if prompt_tokens == 0 and completion_tokens == 0:
-        prompt_tokens = max(len(_extract_prompt(request.messages).split()), 1)
-        completion_tokens = max(len(completion.split()), 1)
+        messages_dicts = [m.model_dump(exclude_none=True) for m in request.messages]
+        prompt_tokens = count_messages_tokens(messages_dicts)
+        completion_tokens = count_tokens(completion)
 
     return ProviderResult(
         completion=completion,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
-        cost_amount=0.0,
+        cost_amount=0.0,  # computed in crud with provider pricing
         cached_tokens=cached_tokens,
         reasoning_tokens=reasoning_tokens,
         provider_reported_cost=provider_reported_cost,
@@ -285,32 +311,61 @@ def _execute_openai_compatible_chat_completion(
     )
 
 
+# ── Public entry point ─────────────────────────────────────────────────────────
+
 def execute_chat_completion(
     provider: Provider,
     model: ModelCatalog,
     request: schemas.ChatCompletionRequest,
 ) -> ProviderResult:
-    if provider.status != "active" or provider.health_status != "healthy":
-        raise ProviderExecutionError(f"Provider {provider.name} is unavailable")
+    """
+    Execute a chat completion against the given provider.
+
+    v0.4: Integrates circuit breaker — records success/failure and updates
+    provider.avg_latency_ms via EMA after each call.
+    """
+    if provider.status != "active":
+        raise ProviderExecutionError(f"Provider {provider.name} is disabled (status={provider.status})")
+
+    # Circuit breaker check (v0.4)
+    if not circuit_breakers.is_available(provider.name):
+        raise ProviderExecutionError(
+            f"Provider {provider.name} circuit breaker is OPEN — skipping to avoid cascade failures"
+        )
 
     prompt = _extract_prompt(request.messages)
+
+    # Test-only escape hatch for forcing failures in integration tests
     fail_marker = f"[fail:{provider.name}]"
     if fail_marker in prompt:
-        raise ProviderExecutionError(f"Provider {provider.name} failed for request")
+        circuit_breakers.record_failure(provider.name)
+        raise ProviderExecutionError(f"Provider {provider.name} failed for request (test marker)")
 
-    if provider.adapter_type == "mock":
-        return _execute_mock_chat_completion(
-            provider=provider,
-            model=model,
-            request=request,
-            prompt=prompt,
+    t0 = time.perf_counter()
+    try:
+        if provider.adapter_type == "mock":
+            result = _execute_mock_chat_completion(
+                provider=provider, model=model, request=request, prompt=prompt,
+            )
+        elif provider.adapter_type == "openai_compatible":
+            result = _execute_openai_compatible_chat_completion(
+                provider=provider, model=model, request=request,
+            )
+        else:
+            raise ProviderExecutionError(f"Unsupported adapter type: {provider.adapter_type}")
+
+        latency_ms = (time.perf_counter() - t0) * 1000
+        result.latency_ms = latency_ms
+
+        # Update EMA latency on the provider object (caller commits to DB) (v0.4)
+        alpha = getattr(provider, "latency_ema_alpha", 0.1)
+        provider.avg_latency_ms = round(
+            alpha * latency_ms + (1 - alpha) * provider.avg_latency_ms, 2
         )
 
-    if provider.adapter_type == "openai_compatible":
-        return _execute_openai_compatible_chat_completion(
-            provider=provider,
-            model=model,
-            request=request,
-        )
+        circuit_breakers.record_success(provider.name)
+        return result
 
-    raise ProviderExecutionError(f"Unsupported adapter type: {provider.adapter_type}")
+    except ProviderExecutionError:
+        circuit_breakers.record_failure(provider.name)
+        raise

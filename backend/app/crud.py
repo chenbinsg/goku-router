@@ -15,6 +15,8 @@ from sqlalchemy.orm import Session
 from . import models, schemas
 from .db import Base
 from .services.providers import ProviderExecutionError, ProviderResult, execute_chat_completion
+from .services.circuit_breaker import circuit_breakers
+from .services.safety import scan_request, scan_response
 
 
 DEFAULT_ROUTE_SCORING_WEIGHTS: dict[str, dict[str, float]] = {
@@ -46,6 +48,86 @@ def _record_audit_log(db: Session, action: str, details: str):
             timestamp=datetime.now(UTC),
         )
     )
+
+
+def _write_billing_record(
+    db: Session,
+    *,
+    request_id: str,
+    api_key_name: str | None,
+    organization_id: int | None,
+    project_id: int | None,
+    environment: str | None,
+    model: str | None,
+    provider: str | None,
+    prompt_tokens: int,
+    completion_tokens: int,
+    cached_tokens: int,
+    cost_usd: float,
+    upstream_cost_usd: float,
+    cache_hit: bool,
+    fallback_used: bool,
+) -> None:
+    """Write a BillingRecord and update RouterApiKey spend counter. (v0.3)"""
+    db.add(models.BillingRecord(
+        request_id=request_id,
+        api_key_name=api_key_name,
+        organization_id=organization_id,
+        project_id=project_id,
+        environment=environment,
+        model=model,
+        provider=provider,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        cached_tokens=cached_tokens,
+        cost_usd=cost_usd,
+        upstream_cost_usd=upstream_cost_usd,
+        cache_hit=cache_hit,
+        fallback_used=fallback_used,
+        date=datetime.now(UTC),
+    ))
+    # Update running spend on the API key (v0.3)
+    if api_key_name:
+        db_key = db.query(models.RouterApiKey).filter(
+            models.RouterApiKey.name == api_key_name
+        ).first()
+        if db_key is not None:
+            db_key.spend_usd = round((db_key.spend_usd or 0.0) + cost_usd, 6)
+
+
+def _check_quota(db: Session, api_key_label: str | None) -> None:
+    """
+    Raise ValueError if the API key has exceeded its request or spend quota. (v0.3)
+    Called before routing to enforce hard limits.
+    """
+    if not api_key_label:
+        return
+    db_key = db.query(models.RouterApiKey).filter(
+        models.RouterApiKey.name == api_key_label
+    ).first()
+    if db_key is None:
+        return
+    # Request count quota
+    if db_key.quota_requests is not None:
+        used = db_key.request_count or 0
+        if used >= db_key.quota_requests:
+            raise ValueError(
+                f"QUOTA_EXCEEDED: API key '{api_key_label}' has reached its request quota "
+                f"({used}/{db_key.quota_requests})"
+            )
+    # Spend quota
+    if db_key.quota_spend_usd is not None:
+        spent = db_key.spend_usd or 0.0
+        if spent >= db_key.quota_spend_usd:
+            raise ValueError(
+                f"QUOTA_EXCEEDED: API key '{api_key_label}' has reached its spend quota "
+                f"(${spent:.4f}/${db_key.quota_spend_usd:.4f})"
+            )
+    # Expiry check
+    if db_key.expires_at is not None:
+        expires = _normalize_stored_datetime(db_key.expires_at)
+        if expires and expires < datetime.now(UTC):
+            raise ValueError(f"QUOTA_EXCEEDED: API key '{api_key_label}' has expired")
 
 
 def _create_notification(db: Session, notification_type: str, message: str):
@@ -124,25 +206,56 @@ def ensure_schema(db: Session):
             ("input_cost_per_1k", "ALTER TABLE providers ADD COLUMN input_cost_per_1k FLOAT DEFAULT 0.001"),
             ("output_cost_per_1k", "ALTER TABLE providers ADD COLUMN output_cost_per_1k FLOAT DEFAULT 0.002"),
             ("avg_latency_ms", "ALTER TABLE providers ADD COLUMN avg_latency_ms FLOAT DEFAULT 500"),
+            ("latency_ema_alpha", "ALTER TABLE providers ADD COLUMN latency_ema_alpha FLOAT DEFAULT 0.1"),
             ("capability_tags", "ALTER TABLE providers ADD COLUMN capability_tags VARCHAR(512) DEFAULT 'chat'"),
             ("supports_zdr", "ALTER TABLE providers ADD COLUMN supports_zdr BOOLEAN DEFAULT 0"),
             ("data_collection_mode", "ALTER TABLE providers ADD COLUMN data_collection_mode VARCHAR(32) DEFAULT 'allow'"),
             ("supported_parameters", "ALTER TABLE providers ADD COLUMN supported_parameters VARCHAR(512) DEFAULT 'temperature,top_p,max_tokens,stop,tools,tool_choice,response_format'"),
             ("max_input_tokens", "ALTER TABLE providers ADD COLUMN max_input_tokens INTEGER DEFAULT 4096"),
             ("max_output_tokens", "ALTER TABLE providers ADD COLUMN max_output_tokens INTEGER DEFAULT 2048"),
+            # v0.4 new columns
+            ("host_type", "ALTER TABLE providers ADD COLUMN host_type VARCHAR(32) DEFAULT 'external'"),
+            ("region", "ALTER TABLE providers ADD COLUMN region VARCHAR(64)"),
+            ("circuit_breaker_state", "ALTER TABLE providers ADD COLUMN circuit_breaker_state VARCHAR(32) DEFAULT 'closed'"),
         ],
         "router_api_keys": [
             ("organization_id", "ALTER TABLE router_api_keys ADD COLUMN organization_id INTEGER"),
             ("project_id", "ALTER TABLE router_api_keys ADD COLUMN project_id INTEGER"),
             ("environment", "ALTER TABLE router_api_keys ADD COLUMN environment VARCHAR(64)"),
             ("quota_requests", "ALTER TABLE router_api_keys ADD COLUMN quota_requests INTEGER"),
+            ("quota_spend_usd", "ALTER TABLE router_api_keys ADD COLUMN quota_spend_usd FLOAT"),
             ("request_count", "ALTER TABLE router_api_keys ADD COLUMN request_count INTEGER DEFAULT 0"),
+            ("spend_usd", "ALTER TABLE router_api_keys ADD COLUMN spend_usd FLOAT DEFAULT 0"),
             ("expires_at", "ALTER TABLE router_api_keys ADD COLUMN expires_at DATETIME"),
             ("rotated_from_key_id", "ALTER TABLE router_api_keys ADD COLUMN rotated_from_key_id INTEGER"),
         ],
         "prompt_cache_entries": [
             ("response_healed", "ALTER TABLE prompt_cache_entries ADD COLUMN response_healed BOOLEAN DEFAULT 0"),
             ("healing_strategy", "ALTER TABLE prompt_cache_entries ADD COLUMN healing_strategy VARCHAR(64)"),
+        ],
+        "workspace_guardrail_configs": [
+            # v0.5 new columns
+            ("blocked_response_words", "ALTER TABLE workspace_guardrail_configs ADD COLUMN blocked_response_words TEXT"),
+            ("regex_patterns", "ALTER TABLE workspace_guardrail_configs ADD COLUMN regex_patterns TEXT"),
+            ("response_regex_patterns", "ALTER TABLE workspace_guardrail_configs ADD COLUMN response_regex_patterns TEXT"),
+            ("detect_pii", "ALTER TABLE workspace_guardrail_configs ADD COLUMN detect_pii BOOLEAN DEFAULT 0"),
+            ("log_prompt", "ALTER TABLE workspace_guardrail_configs ADD COLUMN log_prompt BOOLEAN DEFAULT 1"),
+            ("log_completion", "ALTER TABLE workspace_guardrail_configs ADD COLUMN log_completion BOOLEAN DEFAULT 1"),
+        ],
+        "billing_records": [
+            # v0.3 enhanced billing record columns
+            ("request_id", "ALTER TABLE billing_records ADD COLUMN request_id VARCHAR(255)"),
+            ("api_key_name", "ALTER TABLE billing_records ADD COLUMN api_key_name VARCHAR(255)"),
+            ("environment", "ALTER TABLE billing_records ADD COLUMN environment VARCHAR(64)"),
+            ("model", "ALTER TABLE billing_records ADD COLUMN model VARCHAR(255)"),
+            ("provider", "ALTER TABLE billing_records ADD COLUMN provider VARCHAR(255)"),
+            ("prompt_tokens", "ALTER TABLE billing_records ADD COLUMN prompt_tokens INTEGER DEFAULT 0"),
+            ("completion_tokens", "ALTER TABLE billing_records ADD COLUMN completion_tokens INTEGER DEFAULT 0"),
+            ("cached_tokens", "ALTER TABLE billing_records ADD COLUMN cached_tokens INTEGER DEFAULT 0"),
+            ("cost_usd", "ALTER TABLE billing_records ADD COLUMN cost_usd FLOAT DEFAULT 0"),
+            ("upstream_cost_usd", "ALTER TABLE billing_records ADD COLUMN upstream_cost_usd FLOAT DEFAULT 0"),
+            ("cache_hit", "ALTER TABLE billing_records ADD COLUMN cache_hit BOOLEAN DEFAULT 0"),
+            ("fallback_used", "ALTER TABLE billing_records ADD COLUMN fallback_used BOOLEAN DEFAULT 0"),
         ],
     }
     changed = False
@@ -2427,6 +2540,24 @@ def _execute_routed_chat_completion(
                 db_key = db.query(models.RouterApiKey).filter(models.RouterApiKey.name == api_key_label).first()
                 if db_key is not None:
                     db_key.request_count = (db_key.request_count or 0) + 1
+            # v0.3: Write billing record for cache hits (cost = 0)
+            _write_billing_record(
+                db=db,
+                request_id=request_id,
+                api_key_name=api_key_label,
+                organization_id=organization_id,
+                project_id=project_id,
+                environment=environment,
+                model=model_mapping.model_id,
+                provider=provider.name,
+                prompt_tokens=cached_result.prompt_tokens,
+                completion_tokens=cached_result.completion_tokens,
+                cached_tokens=cached_result.cached_tokens,
+                cost_usd=0.0,
+                upstream_cost_usd=0.0,
+                cache_hit=True,
+                fallback_used=index > 0,
+            )
             db.commit()
             return {
                 "request_id": request_id,
@@ -2447,6 +2578,31 @@ def _execute_routed_chat_completion(
                 + (result.completion_tokens / 1000) * provider.output_cost_per_1k,
                 6,
             )
+            # v0.5: Response safety scan
+            ws_guardrail = db.query(models.WorkspaceGuardrailConfig).filter(
+                models.WorkspaceGuardrailConfig.organization_id == organization_id
+            ).first()
+            resp_blocked_words = _csv_to_list(
+                getattr(ws_guardrail, "blocked_response_words", None) or ""
+            )
+            resp_regex = json.loads(
+                getattr(ws_guardrail, "response_regex_patterns", None) or "[]"
+            )
+            detect_pii = bool(getattr(ws_guardrail, "detect_pii", False))
+            safe_completion, was_modified, resp_violation = scan_response(
+                text=result.completion,
+                blocked_words=resp_blocked_words,
+                regex_patterns=resp_regex,
+                detect_pii=detect_pii,
+                redact_pii=True,
+            )
+            if resp_violation and resp_violation.mode == "block":
+                _record_audit_log(
+                    db, "response_blocked",
+                    f"Response from {provider.name} blocked: {resp_violation.category}",
+                )
+            if was_modified:
+                result.completion = safe_completion
             route_trace["cache"] = {
                 "hit": False,
                 "cache_key": cache_key,
@@ -2499,6 +2655,24 @@ def _execute_routed_chat_completion(
                 db_key = db.query(models.RouterApiKey).filter(models.RouterApiKey.name == api_key_label).first()
                 if db_key is not None:
                     db_key.request_count = (db_key.request_count or 0) + 1
+            # v0.3: Write billing record for every successful request
+            _write_billing_record(
+                db=db,
+                request_id=request_id,
+                api_key_name=api_key_label,
+                organization_id=organization_id,
+                project_id=project_id,
+                environment=environment,
+                model=model_mapping.model_id,
+                provider=provider.name,
+                prompt_tokens=result.prompt_tokens,
+                completion_tokens=result.completion_tokens,
+                cached_tokens=result.cached_tokens,
+                cost_usd=computed_cost,
+                upstream_cost_usd=result.provider_reported_cost,
+                cache_hit=False,
+                fallback_used=index > 0,
+            )
             db.commit()
             return {
                 "request_id": request_id,
@@ -3964,3 +4138,32 @@ def test_provider_connection(
         completion_tokens=result.completion_tokens,
         message="Connection test succeeded",
     )
+
+
+# ── Feedback recording (v0.7 foundation) ──────────────────────────────────────
+
+def record_request_feedback(db: Session, payload: schemas.FeedbackRequest) -> dict:
+    """Store user quality feedback on a RequestLog row."""
+    log = db.query(models.RequestLog).filter(
+        models.RequestLog.request_id == payload.request_id
+    ).first()
+    if log is None:
+        raise ValueError(f"Request '{payload.request_id}' not found")
+    # Store feedback in route_trace_json (non-destructive merge)
+    try:
+        trace = json.loads(log.route_trace_json or "{}")
+    except (json.JSONDecodeError, TypeError):
+        trace = {}
+    trace["user_feedback"] = {
+        "rating": payload.rating,
+        "success": payload.success,
+        "notes": payload.notes,
+        "recorded_at": datetime.now(UTC).isoformat(),
+    }
+    log.route_trace_json = json.dumps(trace, ensure_ascii=False)
+    _record_audit_log(
+        db, "feedback_received",
+        f"Feedback for request {payload.request_id}: rating={payload.rating} success={payload.success}",
+    )
+    db.commit()
+    return {"request_id": payload.request_id, "recorded": True}

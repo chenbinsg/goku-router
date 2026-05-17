@@ -5,10 +5,12 @@ from fastapi import FastAPI, Depends, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from . import models, schemas, crud
 from .config import get_allowed_router_api_keys
 from .db import SessionLocal, engine
+from .services.circuit_breaker import circuit_breakers
 
 
 @asynccontextmanager
@@ -57,8 +59,22 @@ def require_api_key(
     raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 @app.get("/health")
-def read_health():
-    return {"ok": True}
+def read_health(db: Session = Depends(get_db)):
+    """Health check with DB connectivity and circuit breaker status. (v0.3)"""
+    db_ok = False
+    try:
+        db.execute(text("SELECT 1"))
+        db_ok = True
+    except Exception:
+        pass
+    cb_states = circuit_breakers.get_all_states()
+    tripped = [name for name, info in cb_states.items() if info["state"] == "open"]
+    return {
+        "ok": db_ok,
+        "db": "ok" if db_ok else "error",
+        "circuit_breakers": cb_states,
+        "providers_tripped": tripped,
+    }
 
 @app.post("/v1/chat/completions", response_model=schemas.ChatCompletionResponse)
 def create_chat_completion(
@@ -66,6 +82,11 @@ def create_chat_completion(
     db: Session = Depends(get_db),
     api_key_context: dict = Depends(require_api_key),
 ):
+    # v0.3: Enforce request/spend quotas before routing
+    try:
+        crud._check_quota(db=db, api_key_label=api_key_context.get("label"))
+    except ValueError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     try:
         if request.stream:
             return StreamingResponse(
@@ -443,6 +464,39 @@ def export_analytics_summary(
     db: Session = Depends(get_db),
 ):
     return crud.export_analytics_report(db=db, organization_id=organization_id, project_id=project_id, environment=environment)
+
+# ── Circuit breaker admin endpoints (v0.4) ────────────────────────────────────
+
+@app.get("/admin/circuit-breakers")
+def list_circuit_breaker_states():
+    """Return current circuit breaker state for all providers."""
+    return circuit_breakers.get_all_states()
+
+
+@app.post("/admin/circuit-breakers/{provider_name}/reset")
+def reset_circuit_breaker(provider_name: str):
+    """Manually reset a tripped circuit breaker."""
+    circuit_breakers.reset(provider_name)
+    return {"provider": provider_name, "state": "closed", "reset": True}
+
+
+# ── Feedback endpoint (v0.7 foundation) ──────────────────────────────────────
+
+@app.post("/v1/feedback")
+def submit_feedback(
+    payload: schemas.FeedbackRequest,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_api_key),
+):
+    """
+    Accept quality feedback for a completed request.
+    Stored on RequestLog.user_feedback_score for use in route scoring recalibration.
+    """
+    try:
+        return crud.record_request_feedback(db=db, payload=payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
 
 if __name__ == "__main__":
     import uvicorn
