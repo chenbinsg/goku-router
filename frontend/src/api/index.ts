@@ -1240,3 +1240,20 @@ export const updateAdminUser = async (
 export const deleteAdminUser = async (id: number): Promise<void> => {
   await adminClient.delete(`/admin/users/${id}`);
 };
+
+export const getMyProfile = async (): Promise<AdminUser> => {
+  const response = await adminClient.get('/admin/users/me');
+  return response.data;
+};
+
+export const updateMyEmail = async (email: string): Promise<AdminUser> => {
+  const response = await adminClient.put('/admin/users/me', { email });
+  return response.data;
+};
+
+export const changeMyPassword = async (payload: {
+  current_password: string;
+  new_password: string;
+}): Promise<void> => {
+  await adminClient.put('/admin/users/me/password', payload);
+};

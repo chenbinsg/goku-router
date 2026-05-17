@@ -18,6 +18,8 @@ import {
   ThunderboltOutlined,
   CreditCardOutlined,
   TeamOutlined,
+  LockOutlined,
+  ProfileOutlined,
 } from '@ant-design/icons';
 import { useI18n } from './i18n';
 import { isAuthenticated, getUser, clearTokens } from './utils/auth';
@@ -39,6 +41,7 @@ const DashboardAdminPage     = lazy(() => import('./pages/DashboardAdminPage'));
 const NotificationsAdminPage = lazy(() => import('./pages/NotificationsAdminPage'));
 const ApiKeysAdminPage       = lazy(() => import('./pages/ApiKeysAdminPage'));
 const UsersAdminPage         = lazy(() => import('./pages/UsersAdminPage'));
+const ProfilePage            = lazy(() => import('./pages/ProfilePage'));
 const LoginPage              = lazy(() => import('./pages/LoginPage'));
 
 const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -62,6 +65,7 @@ const PATH_TO_KEY: Record<string, [string, string]> = {
   '/admin/byok':          ['byok',       'grp-access'],
   '/admin/security':      ['security',   'grp-access'],
   '/admin/users':         ['users',      'grp-access'],
+  '/admin/profile':       ['profile',    ''],
   '/admin/credits':       ['credits',    'grp-billing'],
   '/admin/billing':       ['billing',    'grp-billing'],
   '/admin/logs':          ['logs',       'grp-observability'],
@@ -95,7 +99,20 @@ const App: React.FC = () => {
       disabled: true,
     },
     { type: 'divider' as const },
-    { key: 'logout', icon: <LogoutOutlined />, label: 'Sign out', onClick: handleLogout },
+    {
+      key: 'profile',
+      icon: <ProfileOutlined />,
+      label: '个人资料',
+      onClick: () => navigate('/admin/profile'),
+    },
+    {
+      key: 'change-password',
+      icon: <LockOutlined />,
+      label: '修改密码',
+      onClick: () => navigate('/admin/profile'),
+    },
+    { type: 'divider' as const },
+    { key: 'logout', icon: <LogoutOutlined />, label: '退出登录', onClick: handleLogout },
   ];
 
   // Unauthenticated — show only login
@@ -294,6 +311,7 @@ const App: React.FC = () => {
               <Route path="/admin/logs"           element={<RequireAuth><LogsAdminPage /></RequireAuth>} />
               <Route path="/admin/notifications"  element={<RequireAuth><NotificationsAdminPage /></RequireAuth>} />
               <Route path="/admin/users"          element={<RequireAuth><UsersAdminPage /></RequireAuth>} />
+              <Route path="/admin/profile"        element={<RequireAuth><ProfilePage /></RequireAuth>} />
               <Route path="*"                     element={<Navigate to="/admin/dashboard" replace />} />
             </Routes>
           </Suspense>

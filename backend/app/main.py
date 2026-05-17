@@ -195,6 +195,20 @@ def get_me(request: Request, db: Session = Depends(get_db)):
     return crud._user_to_schema(user)
 
 
+@app.put("/admin/users/me", response_model=schemas.AdminUserItem)
+def update_me(
+    payload: schemas.AdminUserUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Update the currently authenticated user's own profile (email only)."""
+    ctx = _admin_context(request)
+    updated = crud.update_admin_user(db, ctx["user_id"], payload)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return updated
+
+
 @app.put("/admin/users/me/password")
 def change_my_password(
     payload: schemas.PasswordChangeRequest,
