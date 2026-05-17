@@ -40,9 +40,33 @@ import type {
 
 export { createChatCompletion, createChatCompletionStream, createEmbedding, listModels, exportBilling };
 
+import { getAccessToken, clearTokens } from '../utils/auth';
+
 const adminClient = axios.create({
   baseURL: import.meta.env.VITE_BACKEND_URL || `http://localhost:${import.meta.env.VITE_BACKEND_PORT || '8159'}`,
 });
+
+// Attach JWT on every /admin request
+adminClient.interceptors.request.use((config) => {
+  const token = getAccessToken();
+  if (token) {
+    config.headers = config.headers ?? {};
+    config.headers['Authorization'] = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// On 401, clear tokens and redirect to login
+adminClient.interceptors.response.use(
+  (res) => res,
+  (error) => {
+    if (error?.response?.status === 401) {
+      clearTokens();
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
 
 export const getByokKeys = async (): Promise<ByokKey[]> => [];
 
@@ -64,7 +88,9 @@ export const getRequestLogs = async (filters?: {
       environment: filters?.environment,
     },
   });
-  return response.data.map((log: any) => ({
+  // v1.2.0: endpoint returns { total, items, ... } instead of a plain array
+  const logs: any[] = Array.isArray(response.data) ? response.data : (response.data.items ?? []);
+  return logs.map((log: any) => ({
     requestId: log.request_id,
     apiKeyLabel: log.api_key_label,
     organizationId: log.organization_id,
