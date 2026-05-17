@@ -50,6 +50,9 @@ app.add_middleware(
 @app.middleware("http")
 async def admin_auth_middleware(request: Request, call_next):
     path = request.url.path
+    # Let CORS preflight pass through — the real request that follows will be checked
+    if request.method == "OPTIONS":
+        return await call_next(request)
     if path.startswith("/admin/"):
         auth_header = request.headers.get("authorization", "")
         token = None
