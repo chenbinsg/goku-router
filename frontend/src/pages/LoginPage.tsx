@@ -116,10 +116,6 @@ const LoginPage: React.FC = () => {
             </Form.Item>
           </Form>
 
-          <Text type="secondary" style={{ display: 'block', textAlign: 'center', fontSize: 12 }}>
-            Default: admin / admin123 — change via ADMIN_PASSWORD env var
-          </Text>
-
           <Text type="secondary" style={{ display: 'block', textAlign: 'center', fontSize: 11, opacity: 0.5 }}>
             v1.4.1
           </Text>
