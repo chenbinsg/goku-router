@@ -8,13 +8,13 @@ This document compares the current implementation against 8 desired capabilities
 
 ## Feature Readiness
 
-| # | Feature | Before | After v1.0.0–v1.1.0 | Readiness |
+| # | Feature | Before (baseline) | After v1.0.0–v1.3.0 | Readiness |
 |---|---------|--------|-----------------|-----------|
 | 1 | **Internal / External Host Routing** | No `host_type` flag. No circuit breaker. Failed providers stay in candidate list. | ✅ `host_type` / `region` on Provider. Circuit breaker (CLOSED/OPEN/HALF_OPEN). Internal providers use shorter timeout. | **75%** |
-| 2 | **Smart Routing** (cost / context / cache) | Token counting used `str.split()`. Latency stats never updated from real traffic. | ✅ tiktoken real token counting. Live latency EMA updated after every call. Cost computed from actual tokens. | **80%** |
+| 2 | **Smart Routing** (cost / context / cache) | Token counting used `str.split()`. Latency stats never updated from real traffic. | ✅ tiktoken real token counting. Live latency EMA updated after every call. Cost computed from actual tokens. ProviderQualityScore multiplier in route score. | **85%** |
 | 3 | **Security Controls** | Request-side keyword blocking only. No response filtering. No PII detection. No regex. | ✅ `safety.py`: request + response filtering. Regex patterns. PII redaction (6 built-in patterns). `log_prompt` / `log_completion` flags. | **70%** |
 | 4 | **Self-Evolution** | Recalibration only on manual API call. No automatic trigger. No rollback. | ✅ Drift monitor job (every 6h): auto-recalibrate if ≥ 500 new logs + drift > 10%. Auto-launch A/B. Nightly z-test → auto-promote/rollback. ProviderQualityScore feeds into route scoring. | **80%** |
-| 5 | **Logs & Audit** | Audit log write-only. Sensitive data in plain text. No retention enforcement. | ✅ `log_prompt` / `log_completion` flags. Audit log on all guardrail events. ✅ Log retention job (daily 02:00 UTC). Log search API `/admin/logs`. | **75%** |
+| 5 | **Logs & Audit** | Audit log write-only. Sensitive data in plain text. No retention enforcement. | ✅ `log_prompt` / `log_completion` flags. Audit log on all guardrail events. Log retention job (daily 02:00 UTC). Log search API `/admin/logs`. | **75%** |
 | 6 | **Token Usage & Anomaly Detection** | Synthetic token counts. Thresholds hardcoded. Quota never enforced. | ✅ Real token counts from tiktoken. Configurable `AnomalyThresholdConfig` per org. Hourly anomaly sweep job. Token usage dashboard `/admin/analytics/token-usage`. | **80%** |
 | 7 | **Billing** | `BillingRecord` never written. No spend tracking. No quota enforcement. | ✅ `BillingRecord` written on every request. Monthly rollup job → `MonthlyBillingSummary`. Invoice export (JSON + CSV) `/admin/billing/invoice`. | **80%** |
 | 8 | **Database & End-to-End** | SQLite only. No DB health check. No schema versioning. | ✅ `/health` checks DB connectivity + circuit breaker states. `ensure_schema()` migrations extended for all new columns. | **70%** |
@@ -31,10 +31,10 @@ This document compares the current implementation against 8 desired capabilities
 - ✅ **DB health check** — `GET /health` now queries `SELECT 1` and reports circuit breaker states
 - ✅ **Schema migrations** — `ensure_schema()` extended with all new v1.0.0–v1.1.0 columns
 
-### Remaining (v1.2.0)
+### Remaining (v1.4.0)
 - ⬜ MySQL / Alembic versioned migrations (SQLite still default for dev)
-- ⬜ Monthly billing rollup job
-- ⬜ Invoice export endpoint
+- ✅ Monthly billing rollup job — shipped in v1.2.0
+- ✅ Invoice export endpoint — shipped in v1.2.0
 
 ---
 
@@ -48,7 +48,7 @@ This document compares the current implementation against 8 desired capabilities
 - ✅ **Internal provider timeout** — 15s for `host_type=internal`, 30s for external
 - ✅ **Admin endpoints** — `GET /admin/circuit-breakers` (state overview), `POST /admin/circuit-breakers/{name}/reset` (manual reset)
 
-### Remaining (v1.0.1+)
+### Remaining (v1.4.0)
 - ⬜ `WorkspaceRouteDefault.prefer_internal` flag — explicit preference to route internal-first
 - ⬜ Health heartbeat loop — background job probing internal provider `/health` every 30s
 - ⬜ Semantic prompt caching (embedding-based similarity)
@@ -67,7 +67,7 @@ This document compares the current implementation against 8 desired capabilities
 - ✅ **Audit on response block** — every blocked response writes to `AuditLog`
 - ✅ **Feedback endpoint** — `POST /v1/feedback` accepts `rating` (1–5), `success` (bool), `notes`; stored in `route_trace_json` for future recalibration
 
-### Remaining (v1.1.0+)
+### Remaining (v1.4.0)
 - ⬜ Audit webhook — push high-severity events to configurable org webhook URL
 - ⬜ Named PII categories with per-workspace block/redact/allow config
 - ⬜ Microsoft Presidio integration (replaces regex patterns with ML-based NER)
@@ -83,8 +83,8 @@ This document compares the current implementation against 8 desired capabilities
 - ✅ **Monthly rollup job** (APScheduler) — `rollup_monthly_billing()` runs 1st of each month 01:00 UTC; aggregates `BillingRecord` → `MonthlyBillingSummary` by (org, project, model, provider)
 - ✅ **Invoice export** — `GET /admin/billing/invoice?org_id=&month=` + `GET /admin/billing/invoice/export` (CSV); falls back to live aggregation mid-month
 - ✅ **Monthly summaries list** — `GET /admin/billing/summaries` — browse pre-rolled rollups
-- ⬜ **Chargeback report** — split shared gateway costs by `project_id` (v1.3.0)
-- ⬜ **Paginated billing export** — remove 100-row limit from CSV export (v1.3.0)
+- ⬜ **Chargeback report** — split shared gateway costs by `project_id` (v1.4.0)
+- ⬜ **Paginated billing export** — remove 100-row limit from CSV export (v1.4.0)
 
 ### 3.2: Token Usage Dashboard
 
@@ -105,8 +105,8 @@ This document compares the current implementation against 8 desired capabilities
 - ✅ **Log retention job** — `enforce_log_retention()` runs daily 02:00 UTC; deletes `RequestLog` rows older than `LOG_RETENTION_DAYS` (default 90)
 - ✅ **Log search API** — `GET /admin/logs?q=&model=&provider=&from=&to=&org_id=` with pagination
 - ✅ **Manual retention trigger** — `POST /admin/logs/enforce-retention`
-- ⬜ Structured JSON Lines to stdout (Fluentd/Logstash) — v1.3.0
-- ⬜ Optional S3/GCS export — v1.3.0
+- ⬜ Structured JSON Lines to stdout (Fluentd/Logstash) — v1.4.0
+- ⬜ Optional S3/GCS export — v1.4.0
 
 **Deliverable:** Finance can pull invoices without engineering. On-call gets paged on provider spikes. Logs auto-expire per retention policy. ✅ **DONE**
 
@@ -144,7 +144,7 @@ This document compares the current implementation against 8 desired capabilities
 
 - ⬜ Lightweight ML classifier (logistic regression) — v1.4.0
 - ⬜ Monthly retrain from `RequestLog` labels — v1.4.0
-- (Current rule-based classifier performs well; ML upgrade deferred)
+- (Current rule-based classifier performs well for now; ML upgrade deferred to v1.4.0)
 
 ### 4.5: Feedback Loop Completion
 
@@ -179,7 +179,7 @@ The following are already well-implemented and should not be re-architected:
 - **A/B experiment bucketing** — deterministic hash split is correct; needs lifecycle automation only
 - **Audit log writes** — comprehensive coverage across all admin actions; needs UI and export
 - **Prompt cache data model** — `PromptCacheEntry` is correct; needs semantic matching upgrade
-- **Workload classification logic** — rule-based classifier works for now; ML upgrade is v1.3.0
+- **Workload classification logic** — rule-based classifier works for now; ML upgrade is v1.4.0
 - **Route decision trace** — `route_trace_json` format is excellent; keep it
 
 ---
