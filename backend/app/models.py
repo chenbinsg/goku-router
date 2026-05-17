@@ -258,6 +258,36 @@ class RouteScoringExperiment(Base):
     updated_at = Column(DateTime, nullable=False)
 
 
+class ProviderQualityScore(Base):
+    """Per (provider, workload_class) quality metrics updated by the drift monitor. (v1.3.0)"""
+    __tablename__ = "provider_quality_scores"
+    id = Column(Integer, primary_key=True, index=True)
+    provider_name = Column(String(255), nullable=False, index=True)
+    workload_class = Column(String(64), nullable=False, index=True)
+    # Composite quality score in [0, 1]
+    quality_score = Column(Float, nullable=False, default=1.0)
+    # Raw metrics driving the score
+    success_rate = Column(Float, nullable=False, default=1.0)
+    schema_validity_rate = Column(Float, nullable=False, default=1.0)
+    tool_call_success_rate = Column(Float, nullable=False, default=1.0)
+    avg_latency_ms = Column(Float, nullable=False, default=500.0)
+    avg_cost_usd = Column(Float, nullable=False, default=0.0)
+    sample_count = Column(Integer, nullable=False, default=0)
+    updated_at = Column(DateTime, nullable=False)
+
+
+class RecalibrationEvent(Base):
+    """Audit trail for automatic and manual recalibration runs. (v1.3.0)"""
+    __tablename__ = "recalibration_events"
+    id = Column(Integer, primary_key=True, index=True)
+    trigger = Column(String(64), nullable=False)   # "auto_drift" | "manual" | "api"
+    profile_name = Column(String(255), nullable=False)
+    samples_used = Column(Integer, nullable=False, default=0)
+    weight_delta_json = Column(Text, nullable=True)   # JSON {workload_class: {field: delta}}
+    experiment_launched = Column(String(255), nullable=True)  # experiment name if auto-launched
+    created_at = Column(DateTime, nullable=False)
+
+
 class PromptCacheEntry(Base):
     __tablename__ = "prompt_cache_entries"
     id = Column(Integer, primary_key=True, index=True)

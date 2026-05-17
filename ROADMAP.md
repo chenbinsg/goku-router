@@ -1,6 +1,6 @@
 # Goku-Router — Product Roadmap
 
-> Current version: **v1.2.0** | Updated: 2026-05
+> Current version: **v1.3.0** | Updated: 2026-05
 
 This document compares the current implementation against 8 desired capabilities and maps each gap into a phased delivery plan.
 
@@ -13,7 +13,7 @@ This document compares the current implementation against 8 desired capabilities
 | 1 | **Internal / External Host Routing** | No `host_type` flag. No circuit breaker. Failed providers stay in candidate list. | ✅ `host_type` / `region` on Provider. Circuit breaker (CLOSED/OPEN/HALF_OPEN). Internal providers use shorter timeout. | **75%** |
 | 2 | **Smart Routing** (cost / context / cache) | Token counting used `str.split()`. Latency stats never updated from real traffic. | ✅ tiktoken real token counting. Live latency EMA updated after every call. Cost computed from actual tokens. | **80%** |
 | 3 | **Security Controls** | Request-side keyword blocking only. No response filtering. No PII detection. No regex. | ✅ `safety.py`: request + response filtering. Regex patterns. PII redaction (6 built-in patterns). `log_prompt` / `log_completion` flags. | **70%** |
-| 4 | **Self-Evolution** | Recalibration only on manual API call. No automatic trigger. No rollback. | `POST /v1/feedback` endpoint wired. Feedback stored in `route_trace_json`. Auto-trigger still pending (v1.3.0). | **55%** |
+| 4 | **Self-Evolution** | Recalibration only on manual API call. No automatic trigger. No rollback. | ✅ Drift monitor job (every 6h): auto-recalibrate if ≥ 500 new logs + drift > 10%. Auto-launch A/B. Nightly z-test → auto-promote/rollback. ProviderQualityScore feeds into route scoring. | **80%** |
 | 5 | **Logs & Audit** | Audit log write-only. Sensitive data in plain text. No retention enforcement. | ✅ `log_prompt` / `log_completion` flags. Audit log on all guardrail events. ✅ Log retention job (daily 02:00 UTC). Log search API `/admin/logs`. | **75%** |
 | 6 | **Token Usage & Anomaly Detection** | Synthetic token counts. Thresholds hardcoded. Quota never enforced. | ✅ Real token counts from tiktoken. Configurable `AnomalyThresholdConfig` per org. Hourly anomaly sweep job. Token usage dashboard `/admin/analytics/token-usage`. | **80%** |
 | 7 | **Billing** | `BillingRecord` never written. No spend tracking. No quota enforcement. | ✅ `BillingRecord` written on every request. Monthly rollup job → `MonthlyBillingSummary`. Invoice export (JSON + CSV) `/admin/billing/invoice`. | **80%** |
@@ -112,42 +112,47 @@ This document compares the current implementation against 8 desired capabilities
 
 ---
 
-## 🔄 Phase 4 — Self-Evolution `v1.3.0` *(planned)*
+## ✅ Phase 4 — Self-Evolution `v1.3.0` — **SHIPPED**
 
 **Goal:** Feature 4 — router improves itself from production traffic without human intervention.
 
 ### 4.1: Automatic Recalibration Trigger
 
-- ⬜ **Drift monitor job** (APScheduler, every 6h): compare live routing signals vs baseline; auto-trigger `recalibrate_route_scoring_profile_from_logs()` when drift > threshold
-- ⬜ **Recalibration guard**: only fires if ≥ 500 new `RequestLog` rows since last run
-- ⬜ Recalibration event written to `AuditLog` with before/after weight delta
+- ✅ **Drift monitor job** (APScheduler, every 6h): updates `ProviderQualityScore`, then calls `run_drift_monitor()` which auto-recalibrates when drift exceeds threshold
+- ✅ **Recalibration guard**: only fires if ≥ 500 new `RequestLog` rows since last run
+- ✅ **`RecalibrationEvent`** audit table: records trigger type, samples used, weight deltas (JSON), experiment name if auto-launched
+- ✅ **`GET /admin/recalibration-events`** — audit trail API
+- ✅ **`POST /admin/drift-monitor/run`** — manual trigger with configurable threshold
 
 ### 4.2: Statistical A/B Experiment Lifecycle
 
-- ⬜ **Auto-launch**: create `RouteScoringExperiment` when recalibrated weights diverge > 10% from control (10% traffic to challenger)
-- ⬜ **Nightly significance check**: two-proportion z-test on success rate, avg cost, fallback rate
-- ⬜ **Auto-promote**: promote challenger if p < 0.05 and ran ≥ 7 days
-- ⬜ **Auto-rollback**: stop experiment and alert if challenger is significantly worse
+- ✅ **Auto-launch**: drift monitor creates `RouteScoringExperiment` at 10% traffic when weight delta > 10%; supersedes any running experiment
+- ✅ **Nightly significance check** (03:00 UTC): two-proportion z-test on success rate across control/challenger buckets; user feedback weighted 2× vs system signals
+- ✅ **Auto-promote**: promotes challenger profile if p < 0.05 and ran ≥ 7 days (writes AuditLog)
+- ✅ **Auto-rollback**: stops experiment + writes NotificationRecord alert if challenger significantly worse
+- ✅ **`POST /admin/router-scoring/ab-check`** — manual significance check trigger
 
 ### 4.3: Provider Quality Learning
 
-- ⬜ `ProviderQualityScore` per `(provider, workload_class)` — updated from real responses
-- ⬜ Schema validity rate, tool call success rate per provider
-- ⬜ Feed quality scores into route scoring (replace static capability tags)
+- ✅ `ProviderQualityScore` model — per (provider, workload_class): success rate, schema validity rate, tool call success rate, avg latency, avg cost, composite quality score
+- ✅ Quality score multiplied into `_provider_route_score()` — low-quality providers are penalised automatically
+- ✅ `GET /admin/provider-quality-scores` — browse all scores
+- ✅ `POST /admin/provider-quality-scores/refresh` — manual recompute
+- ✅ Updated every 6h by drift monitor job
 
 ### 4.4: Workload Classifier Upgrade
 
-- ⬜ Lightweight ML classifier (logistic regression / gradient boosting, < 1 MB in-process)
-- ⬜ Features: message count, tool presence, response_format, token count, system prompt keywords
-- ⬜ Monthly retrain from `RequestLog` labels
+- ⬜ Lightweight ML classifier (logistic regression) — v1.4.0
+- ⬜ Monthly retrain from `RequestLog` labels — v1.4.0
+- (Current rule-based classifier performs well; ML upgrade deferred)
 
 ### 4.5: Feedback Loop Completion
 
 - ✅ `POST /v1/feedback` — endpoint live, data stored in `route_trace_json`
-- ⬜ Wire `user_feedback_score` into A/B experiment evaluation
-- ⬜ Weight feedback more heavily than system signals in recalibration
+- ✅ User feedback score (1–5 rating) weighted 2× in A/B significance check (`feedback_boost`)
+- ✅ Feedback delta applied to challenger success rate in z-test evaluation
 
-**Deliverable:** Routing model improves weekly from traffic. A/B tests run and conclude automatically. Provider quality scores reflect real measured performance.
+**Deliverable:** Routing model auto-improves every 6h from traffic. A/B tests run and conclude automatically. Provider quality scores penalise underperformers. ✅ **DONE**
 
 ---
 
@@ -158,9 +163,9 @@ v1.0.0  Foundation Fix         ████████████████�
 v1.0.1  Core Routing           ████████████████░░░░  ✅ DONE (85%)
 v1.1.0  Security               ██████████████░░░░░░  ✅ DONE (75%)
 v1.2.0  Observability/Billing  ██████████████████░░  ✅ DONE (90%)
-v1.3.0  Self-Evolution         ░░░░░░░░░░░░░░░░░░░░  🔄 PLANNED
+v1.3.0  Self-Evolution         ████████████████░░░░  ✅ DONE (80%)
                              ─────────────────────
-Remaining                    ~8–12 weeks to full feature parity
+Remaining                    ~2–4 weeks to full feature parity (ML classifier, S3 export)
 ```
 
 ---
@@ -179,4 +184,4 @@ The following are already well-implemented and should not be re-architected:
 
 ---
 
-*Goku-Router Roadmap — v1.1.0 | © Chuck 2026*
+*Goku-Router Roadmap — v1.3.0 | © Chuck 2026*

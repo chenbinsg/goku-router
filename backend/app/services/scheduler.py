@@ -252,6 +252,55 @@ def run_anomaly_sweep():
         db.close()
 
 
+# ── Job: drift monitor & auto-recalibration ───────────────────────────────────
+
+def drift_monitor_job():
+    """
+    Every 6h: update provider quality scores, then check for routing weight drift.
+    Auto-recalibrates if ≥ 500 new logs since last recalibration.
+    Auto-launches A/B experiment if drift > 10%.
+    """
+    db = _get_db()
+    try:
+        from .. import crud
+        logger.info("Drift monitor: updating provider quality scores")
+        crud.update_provider_quality_scores(db, lookback_hours=6)
+        result = crud.run_drift_monitor(db)
+        if result.fired:
+            logger.info("Drift monitor: recalibration triggered — %s", result.reason)
+            if result.experiment_launched:
+                logger.info("Drift monitor: auto-launched experiment '%s'", result.experiment_launched)
+        else:
+            logger.debug("Drift monitor: skipped — %s", result.reason)
+    except Exception:
+        logger.exception("Drift monitor job failed (non-fatal)")
+        db.rollback()
+    finally:
+        db.close()
+
+
+# ── Job: A/B significance check ───────────────────────────────────────────────
+
+def ab_significance_check_job():
+    """
+    Nightly at 03:00 UTC: run two-proportion z-test on active A/B experiment.
+    Promotes challenger if p < 0.05 and ran ≥ 7 days; rolls back if significantly worse.
+    """
+    db = _get_db()
+    try:
+        from .. import crud
+        result = crud.run_ab_significance_check(db)
+        if result.status == "no_active":
+            logger.debug("A/B check: no active experiment")
+        else:
+            logger.info("A/B significance check: %s", result.message)
+    except Exception:
+        logger.exception("A/B significance check job failed (non-fatal)")
+        db.rollback()
+    finally:
+        db.close()
+
+
 # ── Scheduler lifecycle ────────────────────────────────────────────────────────
 
 def start_scheduler():
@@ -284,8 +333,27 @@ def start_scheduler():
         replace_existing=True,
     )
 
+    # Drift monitor + provider quality scores: every 6 hours  (v1.3.0)
+    _scheduler.add_job(
+        drift_monitor_job,
+        IntervalTrigger(hours=6),
+        id="drift_monitor",
+        replace_existing=True,
+    )
+
+    # A/B significance check: nightly at 03:00 UTC  (v1.3.0)
+    _scheduler.add_job(
+        ab_significance_check_job,
+        CronTrigger(hour=3, minute=0),
+        id="ab_significance_check",
+        replace_existing=True,
+    )
+
     _scheduler.start()
-    logger.info("Background scheduler started (3 jobs: billing_rollup, log_retention, anomaly_sweep)")
+    logger.info(
+        "Background scheduler started (5 jobs: billing_rollup, log_retention, "
+        "anomaly_sweep, drift_monitor, ab_significance_check)"
+    )
 
 
 def stop_scheduler():

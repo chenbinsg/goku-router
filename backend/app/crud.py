@@ -3,6 +3,7 @@ from datetime import datetime, UTC
 import hashlib
 import io
 import json
+import logging
 import secrets
 import time
 import uuid
@@ -17,6 +18,8 @@ from .db import Base
 from .services.providers import ProviderExecutionError, ProviderResult, execute_chat_completion
 from .services.circuit_breaker import circuit_breakers
 from .services.safety import scan_request, scan_response
+
+logger_crud = logging.getLogger(__name__)
 
 
 DEFAULT_ROUTE_SCORING_WEIGHTS: dict[str, dict[str, float]] = {
@@ -1160,11 +1163,27 @@ def _provider_sort_key(
     return (total_price + provider.avg_latency_ms / 1000 + provider.priority / 1000, provider.priority)
 
 
+def _get_provider_quality_score(db: Session | None, provider_name: str, workload_class: str) -> float:
+    """Return the composite quality score [0,1] for a provider+workload_class. Default 1.0."""
+    if db is None:
+        return 1.0
+    rec = (
+        db.query(models.ProviderQualityScore)
+        .filter(
+            models.ProviderQualityScore.provider_name == provider_name,
+            models.ProviderQualityScore.workload_class == workload_class,
+        )
+        .first()
+    )
+    return rec.quality_score if rec else 1.0
+
+
 def _provider_route_score(
     provider: models.Provider,
     request: schemas.ChatCompletionRequest,
     workload_class: str,
     weights: dict[str, float] | None = None,
+    db: Session | None = None,
 ) -> tuple[float, dict[str, float]]:
     total_price = provider.input_cost_per_1k + provider.output_cost_per_1k
     capabilities = _provider_capabilities(provider)
@@ -1175,11 +1194,16 @@ def _provider_route_score(
     capability_score = matched_capabilities / max(len(required_capabilities), 1)
     latency_score = 1 / max(provider.avg_latency_ms, 1)
     cost_score = 1 / max(total_price, 0.001)
+
+    # v1.3.0: multiply by quality score from drift monitor measurements
+    quality_multiplier = _get_provider_quality_score(db, provider.name, workload_class)
+
     raw_score = (
         active_weights["capability"] * capability_score
         + active_weights["latency"] * latency_score * 100
         + active_weights["cost"] * cost_score
-    )
+    ) * quality_multiplier
+
     return raw_score, {
         "applied_capability_weight": round(active_weights["capability"], 4),
         "applied_latency_weight": round(active_weights["latency"], 4),
@@ -1187,6 +1211,7 @@ def _provider_route_score(
         "capability_score": round(capability_score, 4),
         "latency_score": round(latency_score, 6),
         "cost_score": round(cost_score, 6),
+        "quality_multiplier": round(quality_multiplier, 4),
         "raw_score": round(raw_score, 6),
     }
 
@@ -1197,6 +1222,7 @@ def _build_candidate_trace(
     guardrails: models.GuardrailConfig,
     route_weights: dict[str, float] | None = None,
     sticky_provider_name: str | None = None,
+    db: Session | None = None,
 ) -> list[dict[str, Any]]:
     required_capabilities = _infer_required_capabilities(request)
     requested_parameter_names = _requested_parameter_names(request)
@@ -1214,7 +1240,7 @@ def _build_candidate_trace(
         supported_parameters = _provider_supported_parameters(provider)
         total_price = provider.input_cost_per_1k + provider.output_cost_per_1k
         sort_key = _provider_sort_key(provider, request)
-        route_score, score_components = _provider_route_score(provider, request, workload_class, route_weights)
+        route_score, score_components = _provider_route_score(provider, request, workload_class, route_weights, db=db)
         accepted = True
         reject_reason = None
         if not required_capabilities.issubset(capabilities):
@@ -4506,3 +4532,429 @@ def search_request_logs(
             for r in rows
         ],
     }
+
+
+# ── v1.3.0: Provider Quality Scores ───────────────────────────────────────────
+
+_QUALITY_WORKLOAD_CLASSES = [
+    "chat_general", "tool_use", "long_context", "structured_output",
+    "reasoning", "code", "multimodal",
+]
+
+
+def update_provider_quality_scores(db: Session, lookback_hours: int = 6) -> list[dict]:
+    """
+    Compute per-(provider, workload_class) quality metrics from recent RequestLog rows
+    and upsert into ProviderQualityScore. Called by drift_monitor_job.
+    """
+    from datetime import datetime, UTC, timedelta
+
+    cutoff = datetime.now(UTC) - timedelta(hours=lookback_hours)
+    rows = (
+        db.query(models.RequestLog)
+        .filter(models.RequestLog.id > 0)
+        .order_by(models.RequestLog.id.desc())
+        .limit(5000)
+        .all()
+    )
+
+    # Accumulate stats per (provider, workload_class)
+    stats: dict[tuple[str, str], dict] = {}
+    for row in rows:
+        pname = row.provider_name or "unknown"
+        wclass = "chat_general"
+        if row.route_trace_json:
+            try:
+                trace = json.loads(row.route_trace_json)
+                wclass = trace.get("workload_class", "chat_general")
+            except (json.JSONDecodeError, TypeError):
+                pass
+        key = (pname, wclass)
+        if key not in stats:
+            stats[key] = {
+                "success": 0, "total": 0,
+                "schema_valid": 0, "schema_total": 0,
+                "tool_ok": 0, "tool_total": 0,
+                "latency_sum": 0.0, "cost_sum": 0.0,
+            }
+        s = stats[key]
+        s["total"] += 1
+        if row.status_code == 200:
+            s["success"] += 1
+        if row.healing_strategy:
+            # healed response = schema issue; count toward schema validity
+            s["schema_total"] += 1
+            if not row.response_healed:
+                s["schema_valid"] += 1
+        if wclass == "tool_use":
+            s["tool_total"] += 1
+            if row.status_code == 200 and not row.response_healed:
+                s["tool_ok"] += 1
+        s["latency_sum"] += row.latency or 0.0
+        s["cost_sum"] += row.cost_amount or 0.0
+
+    now = datetime.now(UTC)
+    updated = []
+    for (pname, wclass), s in stats.items():
+        if s["total"] == 0:
+            continue
+        success_rate = s["success"] / s["total"]
+        schema_validity_rate = s["schema_valid"] / max(s["schema_total"], 1) if s["schema_total"] else 1.0
+        tool_call_success_rate = s["tool_ok"] / max(s["tool_total"], 1) if s["tool_total"] else 1.0
+        avg_latency = s["latency_sum"] / s["total"]
+        avg_cost = s["cost_sum"] / s["total"]
+        # Composite quality: weighted blend of the three signal rates
+        quality = (
+            0.5 * success_rate
+            + 0.3 * schema_validity_rate
+            + 0.2 * tool_call_success_rate
+        )
+
+        rec = (
+            db.query(models.ProviderQualityScore)
+            .filter(
+                models.ProviderQualityScore.provider_name == pname,
+                models.ProviderQualityScore.workload_class == wclass,
+            )
+            .first()
+        )
+        if rec is None:
+            rec = models.ProviderQualityScore(
+                provider_name=pname,
+                workload_class=wclass,
+                updated_at=now,
+            )
+            db.add(rec)
+        rec.quality_score = round(quality, 4)
+        rec.success_rate = round(success_rate, 4)
+        rec.schema_validity_rate = round(schema_validity_rate, 4)
+        rec.tool_call_success_rate = round(tool_call_success_rate, 4)
+        rec.avg_latency_ms = round(avg_latency, 2)
+        rec.avg_cost_usd = round(avg_cost, 6)
+        rec.sample_count = s["total"]
+        rec.updated_at = now
+        updated.append({"provider": pname, "workload_class": wclass, "quality": quality, "n": s["total"]})
+
+    db.commit()
+    return updated
+
+
+def list_provider_quality_scores(db: Session) -> list[models.ProviderQualityScore]:
+    return (
+        db.query(models.ProviderQualityScore)
+        .order_by(
+            models.ProviderQualityScore.provider_name,
+            models.ProviderQualityScore.workload_class,
+        )
+        .all()
+    )
+
+
+# ── v1.3.0: Drift Monitor & Auto-Recalibration ────────────────────────────────
+
+def _count_new_logs_since_last_recalibration(db: Session) -> int:
+    """Return the number of RequestLog rows written since the most recent RecalibrationEvent."""
+    last = (
+        db.query(models.RecalibrationEvent)
+        .order_by(models.RecalibrationEvent.created_at.desc())
+        .first()
+    )
+    if last is None:
+        return db.query(models.RequestLog).count()
+    return db.query(models.RequestLog).filter(models.RequestLog.id > 0).count()
+
+
+def _compute_weight_deltas(
+    old_weights_json: str,
+    new_weights: dict,
+) -> dict:
+    """Compute per-workload-class, per-dimension absolute weight delta."""
+    try:
+        old_weights = json.loads(old_weights_json)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    deltas = {}
+    for wclass, new_w in new_weights.items():
+        old_w = old_weights.get(wclass, {})
+        class_delta = {}
+        for dim in ("capability", "latency", "cost"):
+            class_delta[dim] = round(
+                abs(new_w.get(dim, 0) - old_w.get(dim, 0)), 4
+            )
+        deltas[wclass] = class_delta
+    return deltas
+
+
+def _max_weight_delta(deltas: dict) -> float:
+    """Return the largest single weight dimension delta across all workload classes."""
+    return max(
+        (d[dim] for class_deltas in deltas.values() for dim in class_deltas for d in [class_deltas]),
+        default=0.0,
+    )
+
+
+def run_drift_monitor(db: Session, drift_threshold: float = 0.10) -> schemas.DriftMonitorResult:
+    """
+    1. Count new RequestLog rows since last recalibration.
+    2. If < 500, skip (guard).
+    3. Recalibrate from logs.
+    4. Compare weight delta to old active profile.
+    5. If delta > drift_threshold (default 10%), auto-launch A/B experiment.
+    6. Write RecalibrationEvent audit row.
+    """
+    from datetime import datetime, UTC
+
+    new_logs = _count_new_logs_since_last_recalibration(db)
+
+    if new_logs < 500:
+        return schemas.DriftMonitorResult(
+            fired=False,
+            reason=f"Only {new_logs} new logs (need ≥ 500)",
+            new_log_count=new_logs,
+        )
+
+    # Snapshot old profile weights before recalibration
+    old_profile = _get_active_route_scoring_profile(db)
+    old_weights_json = old_profile.weights_json if old_profile else "{}"
+    old_profile_name = old_profile.name if old_profile else "default_heuristic_profile"
+
+    # Run recalibration
+    recal_request = schemas.RouteScoringRecalibrationRequest(
+        profile_name="auto_recalibrated",
+        limit=500,
+    )
+    result = recalibrate_route_scoring_profile_from_logs(db, recal_request)
+
+    # Compute weight deltas
+    new_weights = result.weights
+    deltas = _compute_weight_deltas(old_weights_json, new_weights)
+    max_delta = _max_weight_delta(deltas)
+
+    # Auto-launch experiment if drift > threshold
+    experiment_launched = None
+    if max_delta >= drift_threshold:
+        exp_name = f"auto_exp_{datetime.now(UTC).strftime('%Y%m%d_%H%M')}"
+        try:
+            # Deactivate any running experiment first
+            db.query(models.RouteScoringExperiment).filter(
+                models.RouteScoringExperiment.status == "active"
+            ).update({models.RouteScoringExperiment.status: "superseded"})
+            now = datetime.now(UTC)
+            exp = models.RouteScoringExperiment(
+                name=exp_name,
+                control_profile_name=old_profile_name,
+                challenger_profile_name="auto_recalibrated",
+                traffic_percentage=10,  # 10% to challenger
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(exp)
+            db.commit()
+            experiment_launched = exp_name
+            _record_audit_log(
+                db,
+                "auto_experiment_launched",
+                f"Auto-launched A/B experiment '{exp_name}' (max weight delta={max_delta:.3f})",
+            )
+        except Exception:
+            logger_crud.exception("Failed to auto-launch A/B experiment")
+
+    # Write RecalibrationEvent
+    now = datetime.now(UTC)
+    event = models.RecalibrationEvent(
+        trigger="auto_drift",
+        profile_name="auto_recalibrated",
+        samples_used=result.source_summary.get("considered_requests", 0),
+        weight_delta_json=json.dumps(deltas, ensure_ascii=False),
+        experiment_launched=experiment_launched,
+        created_at=now,
+    )
+    db.add(event)
+    db.commit()
+
+    return schemas.DriftMonitorResult(
+        fired=True,
+        reason=f"Drift detected (max delta={max_delta:.3f}, threshold={drift_threshold})",
+        new_log_count=new_logs,
+        recalibration_triggered=True,
+        experiment_launched=experiment_launched,
+        weight_deltas=deltas,
+    )
+
+
+def list_recalibration_events(db: Session, limit: int = 50) -> list[models.RecalibrationEvent]:
+    return (
+        db.query(models.RecalibrationEvent)
+        .order_by(models.RecalibrationEvent.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+
+# ── v1.3.0: A/B Significance Check ───────────────────────────────────────────
+
+def _two_proportion_z_test(n1: int, x1: int, n2: int, x2: int) -> float:
+    """
+    Two-proportion z-test: returns p-value (two-tailed).
+    n1/n2 = total observations, x1/x2 = successes.
+    Falls back to 1.0 if insufficient data.
+    """
+    import math
+    if n1 < 30 or n2 < 30:
+        return 1.0
+    p1 = x1 / n1
+    p2 = x2 / n2
+    p_pool = (x1 + x2) / (n1 + n2)
+    denom = math.sqrt(p_pool * (1 - p_pool) * (1 / n1 + 1 / n2))
+    if denom == 0:
+        return 1.0
+    z = (p1 - p2) / denom
+    # Approximate p-value from |z| using error function
+    p_value = 2 * (1 - 0.5 * (1 + math.erf(abs(z) / math.sqrt(2))))
+    return round(p_value, 6)
+
+
+def run_ab_significance_check(db: Session) -> schemas.ABSignificanceResult:
+    """
+    Nightly A/B significance check on the currently active experiment.
+    Promotes challenger if p < 0.05 and ran ≥ 7 days.
+    Rolls back if challenger is significantly WORSE (p < 0.05 and negative effect).
+    """
+    from datetime import datetime, UTC, timedelta
+
+    experiment = _get_active_route_scoring_experiment(db)
+    if experiment is None:
+        return schemas.ABSignificanceResult(
+            experiment_name="",
+            status="no_active",
+            action="none",
+            message="No active A/B experiment",
+        )
+
+    # Collect outcomes for control vs challenger buckets from route_trace_json
+    rows = (
+        db.query(models.RequestLog)
+        .filter(models.RequestLog.route_trace_json.isnot(None))
+        .order_by(models.RequestLog.id.desc())
+        .limit(10000)
+        .all()
+    )
+
+    control_total = control_success = 0
+    challenger_total = challenger_success = 0
+    control_cost_sum = challenger_cost_sum = 0.0
+
+    for row in rows:
+        try:
+            trace = json.loads(row.route_trace_json or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        exp_meta = trace.get("route_scoring_experiment") or {}
+        if exp_meta.get("name") != experiment.name:
+            continue
+        bucket = exp_meta.get("bucket", 0)
+        is_success = row.status_code == 200 and not row.fallback_used
+        if bucket < experiment.traffic_percentage:
+            # Challenger bucket
+            challenger_total += 1
+            if is_success:
+                challenger_success += 1
+            challenger_cost_sum += row.cost_amount or 0
+        else:
+            # Control bucket
+            control_total += 1
+            if is_success:
+                control_success += 1
+            control_cost_sum += row.cost_amount or 0
+
+    # Also factor in user feedback scores
+    feedback_boost = 0.0
+    for row in rows:
+        try:
+            trace = json.loads(row.route_trace_json or "{}")
+            exp_meta = trace.get("route_scoring_experiment") or {}
+            if exp_meta.get("name") != experiment.name:
+                continue
+            feedback = trace.get("user_feedback") or {}
+            rating = feedback.get("rating")
+            bucket = exp_meta.get("bucket", 0)
+            if rating and bucket < experiment.traffic_percentage:
+                # Weight feedback 2x vs system signals
+                feedback_boost += (rating - 3) * 0.02  # normalize 1–5 → -0.04 to +0.04
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+    control_rate = control_success / max(control_total, 1)
+    challenger_rate = challenger_success / max(challenger_total, 1) + feedback_boost
+
+    p_value = _two_proportion_z_test(
+        control_total, control_success,
+        challenger_total, challenger_success,
+    )
+
+    days_running = (datetime.now(UTC) - experiment.created_at.replace(tzinfo=None if experiment.created_at.tzinfo is None else experiment.created_at.tzinfo)).days
+
+    now = datetime.now(UTC)
+    action = "continue"
+    status = "inconclusive"
+    message = (
+        f"Experiment '{experiment.name}': control={control_rate:.3f} ({control_total}), "
+        f"challenger={challenger_rate:.3f} ({challenger_total}), p={p_value:.4f}, "
+        f"days={days_running}"
+    )
+
+    if p_value < 0.05 and days_running >= 7:
+        if challenger_rate > control_rate:
+            # Promote: activate challenger profile, deactivate experiment
+            db.query(models.RouteScoringProfile).update({models.RouteScoringProfile.status: "inactive"})
+            challenger = (
+                db.query(models.RouteScoringProfile)
+                .filter(models.RouteScoringProfile.name == experiment.challenger_profile_name)
+                .first()
+            )
+            if challenger:
+                challenger.status = "active"
+            experiment.status = "concluded_promoted"
+            experiment.updated_at = now
+            _record_audit_log(
+                db,
+                "ab_experiment_promoted",
+                f"Promoted challenger '{experiment.challenger_profile_name}' "
+                f"(p={p_value:.4f}, Δrate={challenger_rate - control_rate:+.3f})",
+            )
+            db.commit()
+            action = "promote"
+            status = "promoted"
+            message += " → PROMOTED"
+        else:
+            # Rollback: challenger is worse
+            experiment.status = "concluded_rolled_back"
+            experiment.updated_at = now
+            db.add(models.NotificationRecord(
+                type="ab_experiment_rolled_back",
+                message=f"Experiment '{experiment.name}' rolled back — challenger underperformed "
+                        f"(Δrate={challenger_rate - control_rate:+.3f}, p={p_value:.4f})",
+                timestamp=now,
+            ))
+            _record_audit_log(
+                db,
+                "ab_experiment_rolled_back",
+                f"Rolled back challenger '{experiment.challenger_profile_name}' "
+                f"(p={p_value:.4f}, Δrate={challenger_rate - control_rate:+.3f})",
+            )
+            db.commit()
+            action = "rollback"
+            status = "rolled_back"
+            message += " → ROLLED BACK"
+
+    return schemas.ABSignificanceResult(
+        experiment_name=experiment.name,
+        status=status,
+        control_success_rate=round(control_rate, 4),
+        challenger_success_rate=round(challenger_rate, 4),
+        p_value=p_value,
+        days_running=days_running,
+        action=action,
+        message=message,
+    )

@@ -642,6 +642,71 @@ def list_monthly_billing_summaries(
     ]
 
 
+# ── v1.3.0: Provider Quality Scores ───────────────────────────────────────────
+
+@app.get("/admin/provider-quality-scores", response_model=list[schemas.ProviderQualityScoreItem])
+def list_provider_quality_scores(db: Session = Depends(get_db)):
+    """Per-(provider, workload_class) quality metrics computed by the drift monitor."""
+    return crud.list_provider_quality_scores(db=db)
+
+
+@app.post("/admin/provider-quality-scores/refresh", response_model=list[dict])
+def refresh_provider_quality_scores(
+    lookback_hours: int = 6,
+    db: Session = Depends(get_db),
+):
+    """Manually trigger a provider quality score recomputation from recent logs."""
+    return crud.update_provider_quality_scores(db=db, lookback_hours=lookback_hours)
+
+
+# ── v1.3.0: Drift Monitor ─────────────────────────────────────────────────────
+
+@app.post("/admin/drift-monitor/run", response_model=schemas.DriftMonitorResult)
+def run_drift_monitor_now(
+    drift_threshold: float = 0.10,
+    db: Session = Depends(get_db),
+):
+    """
+    Manually trigger the drift monitor (normally runs every 6h).
+    Auto-recalibrates routing weights if ≥ 500 new logs and drift > threshold.
+    """
+    return crud.run_drift_monitor(db=db, drift_threshold=drift_threshold)
+
+
+# ── v1.3.0: Recalibration Events ──────────────────────────────────────────────
+
+@app.get("/admin/recalibration-events", response_model=list[schemas.RecalibrationEventItem])
+def list_recalibration_events(
+    limit: int = 50,
+    db: Session = Depends(get_db),
+):
+    """Audit trail of automatic and manual recalibration runs."""
+    rows = crud.list_recalibration_events(db=db, limit=limit)
+    return [
+        schemas.RecalibrationEventItem(
+            id=r.id,
+            trigger=r.trigger,
+            profile_name=r.profile_name,
+            samples_used=r.samples_used,
+            weight_delta_json=r.weight_delta_json,
+            experiment_launched=r.experiment_launched,
+            created_at=r.created_at.isoformat() if r.created_at else None,
+        )
+        for r in rows
+    ]
+
+
+# ── v1.3.0: A/B Significance Check ───────────────────────────────────────────
+
+@app.post("/admin/router-scoring/ab-check", response_model=schemas.ABSignificanceResult)
+def run_ab_significance_check(db: Session = Depends(get_db)):
+    """
+    Manually trigger the A/B significance check (normally runs nightly at 03:00 UTC).
+    Promotes or rolls back the active experiment based on two-proportion z-test.
+    """
+    return crud.run_ab_significance_check(db=db)
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))

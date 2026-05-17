@@ -787,3 +787,59 @@ class AnomalyThresholdConfigUpdate(BaseModel):
 class LogRetentionResult(BaseModel):
     deleted_rows: int
     retention_days: int
+
+
+# ── v1.3.0: Provider Quality Scores ───────────────────────────────────────────
+
+class ProviderQualityScoreItem(BaseModel):
+    id: Optional[int] = None
+    provider_name: str
+    workload_class: str
+    quality_score: float = 1.0
+    success_rate: float = 1.0
+    schema_validity_rate: float = 1.0
+    tool_call_success_rate: float = 1.0
+    avg_latency_ms: float = 500.0
+    avg_cost_usd: float = 0.0
+    sample_count: int = 0
+    updated_at: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ── v1.3.0: Recalibration Events ──────────────────────────────────────────────
+
+class RecalibrationEventItem(BaseModel):
+    id: Optional[int] = None
+    trigger: str
+    profile_name: str
+    samples_used: int = 0
+    weight_delta_json: Optional[str] = None
+    experiment_launched: Optional[str] = None
+    created_at: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ── v1.3.0: Drift Monitor Result ──────────────────────────────────────────────
+
+class DriftMonitorResult(BaseModel):
+    fired: bool
+    reason: str
+    new_log_count: int
+    recalibration_triggered: bool = False
+    experiment_launched: Optional[str] = None
+    weight_deltas: dict = {}
+
+
+# ── v1.3.0: A/B Significance Check ───────────────────────────────────────────
+
+class ABSignificanceResult(BaseModel):
+    experiment_name: str
+    status: str                  # "promoted" | "rolled_back" | "inconclusive" | "no_active"
+    control_success_rate: float = 0.0
+    challenger_success_rate: float = 0.0
+    p_value: Optional[float] = None
+    days_running: int = 0
+    action: str = "none"          # "promote" | "rollback" | "continue"
+    message: str = ""
