@@ -8,12 +8,12 @@ This document compares the current implementation against 8 desired capabilities
 
 ## Feature Readiness
 
-| # | Feature | Before | After v0.3–v0.5 | Readiness |
+| # | Feature | Before | After v1.0.0–v1.1.0 | Readiness |
 |---|---------|--------|-----------------|-----------|
 | 1 | **Internal / External Host Routing** | No `host_type` flag. No circuit breaker. Failed providers stay in candidate list. | ✅ `host_type` / `region` on Provider. Circuit breaker (CLOSED/OPEN/HALF_OPEN). Internal providers use shorter timeout. | **75%** |
 | 2 | **Smart Routing** (cost / context / cache) | Token counting used `str.split()`. Latency stats never updated from real traffic. | ✅ tiktoken real token counting. Live latency EMA updated after every call. Cost computed from actual tokens. | **80%** |
 | 3 | **Security Controls** | Request-side keyword blocking only. No response filtering. No PII detection. No regex. | ✅ `safety.py`: request + response filtering. Regex patterns. PII redaction (6 built-in patterns). `log_prompt` / `log_completion` flags. | **70%** |
-| 4 | **Self-Evolution** | Recalibration only on manual API call. No automatic trigger. No rollback. | `POST /v1/feedback` endpoint wired. Feedback stored in `route_trace_json`. Auto-trigger still pending (v0.7). | **55%** |
+| 4 | **Self-Evolution** | Recalibration only on manual API call. No automatic trigger. No rollback. | `POST /v1/feedback` endpoint wired. Feedback stored in `route_trace_json`. Auto-trigger still pending (v1.3.0). | **55%** |
 | 5 | **Logs & Audit** | Audit log write-only. Sensitive data in plain text. No retention enforcement. | ✅ `log_prompt` / `log_completion` flags suppress plain-text storage. Audit log on all guardrail events. | **60%** |
 | 6 | **Token Usage & Anomaly Detection** | Synthetic token counts. Thresholds hardcoded. Quota never enforced. | ✅ Real token counts from tiktoken. `_check_quota()` enforces `quota_requests` + `quota_spend_usd` before routing. | **65%** |
 | 7 | **Billing** | `BillingRecord` never written. No spend tracking. No quota enforcement. | ✅ `BillingRecord` written on every request (incl. cache hits). `spend_usd` tracked per API key. Quota enforcement returns 429. | **65%** |
@@ -21,7 +21,7 @@ This document compares the current implementation against 8 desired capabilities
 
 ---
 
-## ✅ Phase 0 — Foundation Fix `v0.3` — **SHIPPED**
+## ✅ Phase 0 — Foundation Fix `v1.0.0` — **SHIPPED**
 
 ### Completed
 - ✅ **Real token counting** — `services/token_counter.py` using tiktoken; falls back to word-count if not installed
@@ -29,16 +29,16 @@ This document compares the current implementation against 8 desired capabilities
 - ✅ **Quota enforcement** — `_check_quota()` checks `quota_requests`, `quota_spend_usd`, `expires_at` before routing; returns HTTP 429
 - ✅ **Spend tracking** — `RouterApiKey.spend_usd` incremented after every request
 - ✅ **DB health check** — `GET /health` now queries `SELECT 1` and reports circuit breaker states
-- ✅ **Schema migrations** — `ensure_schema()` extended with all new v0.3–v0.5 columns
+- ✅ **Schema migrations** — `ensure_schema()` extended with all new v1.0.0–v1.1.0 columns
 
-### Remaining (v0.6)
+### Remaining (v1.2.0)
 - ⬜ MySQL / Alembic versioned migrations (SQLite still default for dev)
 - ⬜ Monthly billing rollup job
 - ⬜ Invoice export endpoint
 
 ---
 
-## ✅ Phase 1 — Core Routing `v0.4` — **SHIPPED**
+## ✅ Phase 1 — Core Routing `v1.0.1` — **SHIPPED**
 
 ### Completed
 - ✅ **`host_type` field** — `Provider.host_type` (`internal` / `external`) + `region` field
@@ -48,14 +48,14 @@ This document compares the current implementation against 8 desired capabilities
 - ✅ **Internal provider timeout** — 15s for `host_type=internal`, 30s for external
 - ✅ **Admin endpoints** — `GET /admin/circuit-breakers` (state overview), `POST /admin/circuit-breakers/{name}/reset` (manual reset)
 
-### Remaining (v0.4+)
+### Remaining (v1.0.1+)
 - ⬜ `WorkspaceRouteDefault.prefer_internal` flag — explicit preference to route internal-first
 - ⬜ Health heartbeat loop — background job probing internal provider `/health` every 30s
 - ⬜ Semantic prompt caching (embedding-based similarity)
 
 ---
 
-## ✅ Phase 2 — Security `v0.5` — **SHIPPED**
+## ✅ Phase 2 — Security `v1.1.0` — **SHIPPED**
 
 ### Completed
 - ✅ **`services/safety.py`** — unified request + response safety pipeline
@@ -67,14 +67,14 @@ This document compares the current implementation against 8 desired capabilities
 - ✅ **Audit on response block** — every blocked response writes to `AuditLog`
 - ✅ **Feedback endpoint** — `POST /v1/feedback` accepts `rating` (1–5), `success` (bool), `notes`; stored in `route_trace_json` for future recalibration
 
-### Remaining (v0.5+)
+### Remaining (v1.1.0+)
 - ⬜ Audit webhook — push high-severity events to configurable org webhook URL
 - ⬜ Named PII categories with per-workspace block/redact/allow config
 - ⬜ Microsoft Presidio integration (replaces regex patterns with ML-based NER)
 
 ---
 
-## 🔄 Phase 3 — Observability & Billing `v0.6` *(next)*
+## 🔄 Phase 3 — Observability & Billing `v1.2.0` *(next)*
 
 **Goal:** Features 5, 6, 7 — full billing pipeline, configurable anomaly detection, log export.
 
@@ -120,7 +120,7 @@ AnomalyThresholdConfig (per org):
 
 ---
 
-## 🔄 Phase 4 — Self-Evolution `v0.7` *(planned)*
+## 🔄 Phase 4 — Self-Evolution `v1.3.0` *(planned)*
 
 **Goal:** Feature 4 — router improves itself from production traffic without human intervention.
 
@@ -162,11 +162,11 @@ AnomalyThresholdConfig (per org):
 ## Progress Summary
 
 ```
-v0.3  Foundation Fix         ████████████████████  ✅ DONE
-v0.4  Core Routing           ████████████████░░░░  ✅ DONE (85%)
-v0.5  Security               ██████████████░░░░░░  ✅ DONE (75%)
-v0.6  Observability/Billing  ░░░░░░░░░░░░░░░░░░░░  🔄 NEXT
-v0.7  Self-Evolution         ░░░░░░░░░░░░░░░░░░░░  🔄 PLANNED
+v1.0.0  Foundation Fix         ████████████████████  ✅ DONE
+v1.0.1  Core Routing           ████████████████░░░░  ✅ DONE (85%)
+v1.1.0  Security               ██████████████░░░░░░  ✅ DONE (75%)
+v1.2.0  Observability/Billing  ░░░░░░░░░░░░░░░░░░░░  🔄 NEXT
+v1.3.0  Self-Evolution         ░░░░░░░░░░░░░░░░░░░░  🔄 PLANNED
                              ─────────────────────
 Remaining                    ~8–12 weeks to full feature parity
 ```
@@ -182,7 +182,7 @@ The following are already well-implemented and should not be re-architected:
 - **A/B experiment bucketing** — deterministic hash split is correct; needs lifecycle automation only
 - **Audit log writes** — comprehensive coverage across all admin actions; needs UI and export
 - **Prompt cache data model** — `PromptCacheEntry` is correct; needs semantic matching upgrade
-- **Workload classification logic** — rule-based classifier works for now; ML upgrade is v0.7
+- **Workload classification logic** — rule-based classifier works for now; ML upgrade is v1.3.0
 - **Route decision trace** — `route_trace_json` format is excellent; keep it
 
 ---
