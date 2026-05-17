@@ -141,6 +141,14 @@ def update_provider(provider_id: int, provider: schemas.ProviderCreate, db: Sess
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@app.delete("/admin/providers/{provider_id}", status_code=204)
+def delete_provider(provider_id: int, db: Session = Depends(get_db)):
+    try:
+        crud.delete_provider(db=db, provider_id=provider_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @app.post("/admin/providers/test", response_model=schemas.ProviderConnectionTestResult)
 def test_provider_connection(
     request: schemas.ProviderConnectionTestRequest,

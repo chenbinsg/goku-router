@@ -371,6 +371,10 @@ export const updateProvider = async (provider: Provider): Promise<Provider> => {
   };
 };
 
+export const deleteProvider = async (providerId: string): Promise<void> => {
+  await adminClient.delete(`/admin/providers/${providerId}`);
+};
+
 export const testProviderConnection = async (
   payload: ProviderConnectionTestInput,
 ): Promise<ProviderConnectionTestResult> => {

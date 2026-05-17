@@ -2797,6 +2797,19 @@ def create_provider(db: Session, provider: schemas.ProviderCreate):
     )
 
 
+def delete_provider(db: Session, provider_id: int):
+    db_provider = db.query(models.Provider).filter(models.Provider.id == provider_id).first()
+    if db_provider is None:
+        raise ValueError(f"INVALID_PROVIDER: {provider_id}")
+    # Remove route rules that reference this provider to satisfy the FK constraint
+    affected_rules = db.query(models.RouteRule).filter(models.RouteRule.preferred_provider_id == provider_id).all()
+    for rule in affected_rules:
+        db.delete(rule)
+    _record_audit_log(db, "provider_deleted", f"Deleted provider {db_provider.name} (and {len(affected_rules)} associated route rule(s))")
+    db.delete(db_provider)
+    db.commit()
+
+
 def update_provider(db: Session, provider_id: int, provider: schemas.ProviderCreate):
     seed_demo_data(db)
     db_provider = db.query(models.Provider).filter(models.Provider.id == provider_id).first()
