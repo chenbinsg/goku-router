@@ -1,9 +1,9 @@
 from contextlib import asynccontextmanager
 import os
 
-from fastapi import FastAPI, Depends, Header, HTTPException
+from fastapi import FastAPI, Depends, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
@@ -12,11 +12,21 @@ from .config import get_allowed_router_api_keys
 from .db import SessionLocal, engine
 from .services.circuit_breaker import circuit_breakers
 from .services.scheduler import start_scheduler, stop_scheduler
+from .services.auth import (
+    create_access_token, create_refresh_token,
+    decode_access_token, decode_refresh_token,
+)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     models.Base.metadata.create_all(bind=engine)
+    # Seed initial superadmin if no admin users exist
+    db = SessionLocal()
+    try:
+        crud.seed_superadmin(db)
+    finally:
+        db.close()
     start_scheduler()
     yield
     stop_scheduler()
@@ -32,12 +42,71 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# ── Admin JWT middleware ────────────────────────────────────────────────────────
+# All /admin/* routes require a valid access token.
+# /auth/* and /v1/* routes are exempt.
+
+@app.middleware("http")
+async def admin_auth_middleware(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/admin/"):
+        auth_header = request.headers.get("authorization", "")
+        token = None
+        if auth_header.lower().startswith("bearer "):
+            token = auth_header[7:].strip()
+        if not token:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Admin routes require a valid JWT. POST /auth/login to obtain one."},
+            )
+        payload = decode_access_token(token)
+        if payload is None:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Invalid or expired token. POST /auth/login to re-authenticate."},
+            )
+        # Attach caller info to request state for downstream use
+        request.state.admin_user_id = int(payload["sub"])
+        request.state.admin_username = payload["username"]
+        request.state.admin_role = payload["role"]
+    return await call_next(request)
+
+
 def get_db():
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+
+
+def _admin_context(request: Request) -> dict:
+    """Extract admin identity set by the middleware. Raises 401 if missing."""
+    try:
+        return {
+            "user_id": request.state.admin_user_id,
+            "username": request.state.admin_username,
+            "role": request.state.admin_role,
+        }
+    except AttributeError:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+
+def require_superadmin(request: Request) -> dict:
+    """Dependency: only superadmin may call this endpoint."""
+    ctx = _admin_context(request)
+    if ctx["role"] != "superadmin":
+        raise HTTPException(status_code=403, detail="Superadmin role required")
+    return ctx
+
+
+def require_admin_write(request: Request) -> dict:
+    """Dependency: superadmin or admin may call this endpoint (not viewer)."""
+    ctx = _admin_context(request)
+    if ctx["role"] == "viewer":
+        raise HTTPException(status_code=403, detail="Write access requires admin or superadmin role")
+    return ctx
 
 
 def require_api_key(
@@ -60,6 +129,140 @@ def require_api_key(
             return db_key_context
 
     raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
+# ── Auth endpoints (/auth/*) ───────────────────────────────────────────────────
+
+@app.post("/auth/login", response_model=schemas.TokenResponse)
+def login(payload: schemas.LoginRequest, db: Session = Depends(get_db)):
+    """
+    Authenticate with username + password.
+    Returns access token (30 min) and refresh token (7 days).
+    """
+    user = crud.authenticate_user(db, payload.username, payload.password)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    access_token = create_access_token(user.id, user.username, user.role)
+    refresh_token = create_refresh_token(user.id, user.username)
+    return schemas.TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        role=user.role,
+        username=user.username,
+    )
+
+
+@app.post("/auth/refresh", response_model=schemas.TokenResponse)
+def refresh_token(payload: schemas.RefreshRequest, db: Session = Depends(get_db)):
+    """Exchange a refresh token for a new access + refresh token pair."""
+    data = decode_refresh_token(payload.refresh_token)
+    if data is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+    user = crud.get_admin_user_by_id(db, int(data["sub"]))
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=401, detail="User not found or deactivated")
+    access_token = create_access_token(user.id, user.username, user.role)
+    new_refresh = create_refresh_token(user.id, user.username)
+    return schemas.TokenResponse(
+        access_token=access_token,
+        refresh_token=new_refresh,
+        role=user.role,
+        username=user.username,
+    )
+
+
+@app.post("/auth/logout")
+def logout():
+    """
+    Stateless logout — client should discard tokens.
+    (Token blacklist is a v1.5.0 addition for stricter security.)
+    """
+    return {"detail": "Logged out. Discard your tokens client-side."}
+
+
+# ── Admin: current user ────────────────────────────────────────────────────────
+
+@app.get("/admin/users/me", response_model=schemas.AdminUserItem)
+def get_me(request: Request, db: Session = Depends(get_db)):
+    """Return the currently authenticated admin user's profile."""
+    ctx = _admin_context(request)
+    user = crud.get_admin_user_by_id(db, ctx["user_id"])
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return crud._user_to_schema(user)
+
+
+@app.put("/admin/users/me/password")
+def change_my_password(
+    payload: schemas.PasswordChangeRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Change the currently authenticated user's password."""
+    ctx = _admin_context(request)
+    try:
+        crud.change_admin_user_password(
+            db, ctx["user_id"], payload.current_password, payload.new_password
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"detail": "Password updated successfully"}
+
+
+# ── Admin: user management (superadmin only for create/delete/update) ──────────
+
+@app.get("/admin/users", response_model=list[schemas.AdminUserItem])
+def list_users(request: Request, db: Session = Depends(get_db)):
+    """List all admin users. Requires admin or superadmin role."""
+    _admin_context(request)   # any authenticated admin may list
+    return [crud._user_to_schema(u) for u in crud.list_admin_users(db)]
+
+
+@app.post("/admin/users", response_model=schemas.AdminUserItem, status_code=201)
+def create_user(
+    payload: schemas.AdminUserCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_superadmin),
+):
+    """Create a new admin user. Superadmin only."""
+    try:
+        user = crud.create_admin_user(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return crud._user_to_schema(user)
+
+
+@app.put("/admin/users/{user_id}", response_model=schemas.AdminUserItem)
+def update_user(
+    user_id: int,
+    payload: schemas.AdminUserUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_superadmin),
+):
+    """Update a user's role, email, or active status. Superadmin only."""
+    try:
+        user = crud.update_admin_user(db, user_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return crud._user_to_schema(user)
+
+
+@app.delete("/admin/users/{user_id}", status_code=204)
+def delete_user(
+    user_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_superadmin),
+):
+    """Delete an admin user. Superadmin only. Cannot delete yourself."""
+    ctx = _admin_context(request)
+    try:
+        crud.delete_admin_user(db, user_id, ctx["user_id"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
 
 @app.get("/health")
 def read_health(db: Session = Depends(get_db)):

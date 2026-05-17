@@ -4958,3 +4958,147 @@ def run_ab_significance_check(db: Session) -> schemas.ABSignificanceResult:
         action=action,
         message=message,
     )
+
+
+# ── v1.4.0: Admin User Management ─────────────────────────────────────────────
+
+def seed_superadmin(db: Session) -> None:
+    """
+    Called on startup. Creates the initial superadmin from env vars if no
+    admin users exist yet.
+    """
+    from .config import settings
+    from .services.auth import hash_password
+
+    count = db.query(models.AdminUser).count()
+    if count > 0:
+        return
+
+    now = datetime.now(UTC)
+    user = models.AdminUser(
+        username=settings.admin_user,
+        email=None,
+        password_hash=hash_password(settings.admin_password),
+        role="superadmin",
+        is_active=True,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(user)
+    db.commit()
+    logger_crud.info("Seeded initial superadmin user '%s'", settings.admin_user)
+
+
+def authenticate_user(db: Session, username: str, password: str) -> models.AdminUser | None:
+    """Return the user if credentials are valid and account is active, else None."""
+    from .services.auth import verify_password
+
+    user = db.query(models.AdminUser).filter(
+        models.AdminUser.username == username,
+        models.AdminUser.is_active == True,  # noqa: E712
+    ).first()
+    if user is None:
+        return None
+    if not verify_password(password, user.password_hash):
+        return None
+    # Update last_login_at
+    user.last_login_at = datetime.now(UTC)
+    db.commit()
+    return user
+
+
+def get_admin_user_by_id(db: Session, user_id: int) -> models.AdminUser | None:
+    return db.query(models.AdminUser).filter(models.AdminUser.id == user_id).first()
+
+
+def list_admin_users(db: Session) -> list[models.AdminUser]:
+    return db.query(models.AdminUser).order_by(models.AdminUser.id).all()
+
+
+def create_admin_user(db: Session, payload: schemas.AdminUserCreate) -> models.AdminUser:
+    from .services.auth import hash_password
+
+    existing = db.query(models.AdminUser).filter(
+        models.AdminUser.username == payload.username
+    ).first()
+    if existing:
+        raise ValueError(f"Username '{payload.username}' already exists")
+
+    if payload.role not in ("superadmin", "admin", "viewer"):
+        raise ValueError(f"Invalid role '{payload.role}'. Must be superadmin | admin | viewer")
+
+    now = datetime.now(UTC)
+    user = models.AdminUser(
+        username=payload.username,
+        email=payload.email,
+        password_hash=hash_password(payload.password),
+        role=payload.role,
+        is_active=True,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def update_admin_user(db: Session, user_id: int, payload: schemas.AdminUserUpdate) -> models.AdminUser:
+    user = get_admin_user_by_id(db, user_id)
+    if user is None:
+        raise ValueError(f"User {user_id} not found")
+
+    if payload.email is not None:
+        user.email = payload.email
+    if payload.role is not None:
+        if payload.role not in ("superadmin", "admin", "viewer"):
+            raise ValueError(f"Invalid role '{payload.role}'")
+        user.role = payload.role
+    if payload.is_active is not None:
+        user.is_active = payload.is_active
+
+    user.updated_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def delete_admin_user(db: Session, user_id: int, requesting_user_id: int) -> None:
+    if user_id == requesting_user_id:
+        raise ValueError("Cannot delete your own account")
+    user = get_admin_user_by_id(db, user_id)
+    if user is None:
+        raise ValueError(f"User {user_id} not found")
+    db.delete(user)
+    db.commit()
+
+
+def change_admin_user_password(
+    db: Session,
+    user_id: int,
+    current_password: str,
+    new_password: str,
+) -> None:
+    from .services.auth import hash_password, verify_password
+
+    user = get_admin_user_by_id(db, user_id)
+    if user is None:
+        raise ValueError("User not found")
+    if not verify_password(current_password, user.password_hash):
+        raise ValueError("Current password is incorrect")
+    user.password_hash = hash_password(new_password)
+    user.updated_at = datetime.now(UTC)
+    db.commit()
+
+
+def _user_to_schema(user: models.AdminUser) -> schemas.AdminUserItem:
+    return schemas.AdminUserItem(
+        id=user.id,
+        username=user.username,
+        email=user.email,
+        role=user.role,
+        is_active=user.is_active,
+        created_at=user.created_at.isoformat(),
+        updated_at=user.updated_at.isoformat(),
+        last_login_at=user.last_login_at.isoformat() if user.last_login_at else None,
+    )

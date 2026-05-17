@@ -843,3 +843,54 @@ class ABSignificanceResult(BaseModel):
     days_running: int = 0
     action: str = "none"          # "promote" | "rollback" | "continue"
     message: str = ""
+
+
+# ── v1.4.0: Auth & User Management ────────────────────────────────────────────
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int = 1800      # seconds (30 min)
+    role: str
+    username: str
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class AdminUserItem(BaseModel):
+    id: int
+    username: str
+    email: Optional[str] = None
+    role: str
+    is_active: bool
+    created_at: str
+    updated_at: str
+    last_login_at: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminUserCreate(BaseModel):
+    username: str
+    password: str
+    email: Optional[str] = None
+    role: str = "admin"          # superadmin | admin | viewer
+
+
+class AdminUserUpdate(BaseModel):
+    email: Optional[str] = None
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
