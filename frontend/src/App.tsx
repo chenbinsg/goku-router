@@ -47,22 +47,22 @@ const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return <>{children}</>;
 };
 
-// Map route path → menu key for active highlight
-const PATH_TO_KEY: Record<string, string> = {
-  '/admin/dashboard':     'dashboard',
-  '/v1/chat/completions': 'chat',
-  '/v1/embeddings':       'embeddings',
-  '/v1/models':           'models-list',
-  '/admin/models':        'models',
-  '/admin/providers':     'providers',
-  '/admin/routing':       'routing',
-  '/admin/api-keys':      'api-keys',
-  '/admin/byok':          'byok',
-  '/admin/security':      'security',
-  '/admin/credits':       'credits',
-  '/admin/billing':       'billing',
-  '/admin/logs':          'logs',
-  '/admin/notifications': 'notifications',
+// Map route path → [itemKey, parentGroupKey]
+const PATH_TO_KEY: Record<string, [string, string]> = {
+  '/admin/dashboard':     ['dashboard',  ''],
+  '/v1/chat/completions': ['chat',       'grp-playground'],
+  '/v1/embeddings':       ['embeddings', 'grp-playground'],
+  '/v1/models':           ['models-list','grp-playground'],
+  '/admin/models':        ['models',     'grp-routing'],
+  '/admin/providers':     ['providers',  'grp-routing'],
+  '/admin/routing':       ['routing',    'grp-routing'],
+  '/admin/api-keys':      ['api-keys',   'grp-access'],
+  '/admin/byok':          ['byok',       'grp-access'],
+  '/admin/security':      ['security',   'grp-access'],
+  '/admin/credits':       ['credits',    'grp-billing'],
+  '/admin/billing':       ['billing',    'grp-billing'],
+  '/admin/logs':          ['logs',       'grp-observability'],
+  '/admin/notifications': ['notifications','grp-observability'],
 };
 
 const App: React.FC = () => {
@@ -76,7 +76,7 @@ const App: React.FC = () => {
     navigate('/login', { replace: true });
   };
 
-  const selectedKey = PATH_TO_KEY[location.pathname] ?? 'dashboard';
+  const [selectedKey, openGroupKey] = PATH_TO_KEY[location.pathname] ?? ['dashboard', ''];
 
   const userMenuItems = [
     {
@@ -115,10 +115,10 @@ const App: React.FC = () => {
       label: <Link to="/admin/dashboard">{t('nav.dashboard')}</Link>,
     },
 
-    // ── Playground ────────────────────────────────────────────────────────────
+    // ── Playground (collapsible submenu) ──────────────────────────────────────
     {
       key: 'grp-playground',
-      type: 'group' as const,
+      icon: <MessageOutlined />,
       label: t('nav.group.playground'),
       children: [
         {
@@ -139,10 +139,10 @@ const App: React.FC = () => {
       ],
     },
 
-    // ── Routing ───────────────────────────────────────────────────────────────
+    // ── Routing (collapsible submenu) ─────────────────────────────────────────
     {
       key: 'grp-routing',
-      type: 'group' as const,
+      icon: <BranchesOutlined />,
       label: t('nav.group.routing'),
       children: [
         {
@@ -163,10 +163,10 @@ const App: React.FC = () => {
       ],
     },
 
-    // ── Access & Security ─────────────────────────────────────────────────────
+    // ── Access & Security (collapsible submenu) ───────────────────────────────
     {
       key: 'grp-access',
-      type: 'group' as const,
+      icon: <SafetyOutlined />,
       label: t('nav.group.access'),
       children: [
         {
@@ -187,10 +187,10 @@ const App: React.FC = () => {
       ],
     },
 
-    // ── Billing ───────────────────────────────────────────────────────────────
+    // ── Billing (collapsible submenu) ─────────────────────────────────────────
     {
       key: 'grp-billing',
-      type: 'group' as const,
+      icon: <DollarOutlined />,
       label: t('nav.group.billing'),
       children: [
         {
@@ -206,10 +206,10 @@ const App: React.FC = () => {
       ],
     },
 
-    // ── Observability ─────────────────────────────────────────────────────────
+    // ── Observability (collapsible submenu) ───────────────────────────────────
     {
       key: 'grp-observability',
-      type: 'group' as const,
+      icon: <FileTextOutlined />,
       label: t('nav.group.observability'),
       children: [
         {
@@ -238,6 +238,7 @@ const App: React.FC = () => {
           theme="dark"
           mode="inline"
           selectedKeys={[selectedKey]}
+          defaultOpenKeys={openGroupKey ? [openGroupKey] : []}
           items={menuItems}
           style={{ borderRight: 0, paddingBottom: 24 }}
         />
