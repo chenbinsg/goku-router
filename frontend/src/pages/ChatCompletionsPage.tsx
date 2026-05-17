@@ -25,11 +25,11 @@ type ChatCompletionFormValues = {
 
 const rollingKeyframes = `
 @keyframes monkeyRoll {
-  0%   { left: -60px;  transform: rotate(0deg);          }
-  48%  { left: calc(100vw + 60px); transform: rotate(1080deg);           }
-  50%  { left: calc(100vw + 60px); transform: rotate(1080deg) scaleX(-1);}
-  98%  { left: -60px;  transform: rotate(0deg)   scaleX(-1);             }
-  100% { left: -60px;  transform: rotate(0deg);          }
+  0%   { left: 0px;               transform: rotate(0deg);                }
+  48%  { left: calc(100vw - 80px); transform: rotate(1080deg);            }
+  50%  { left: calc(100vw - 80px); transform: rotate(1080deg) scaleX(-1); }
+  98%  { left: 0px;               transform: rotate(2160deg) scaleX(-1);  }
+  100% { left: 0px;               transform: rotate(2160deg);             }
 }
 `;
 
@@ -178,16 +178,16 @@ const ChatCompletionsPage: React.FC = () => {
     <style>{rollingKeyframes}</style>
     {loading && (
       <img
-        src="/logo.png"
+        src="/icon-192.png"
         alt=""
         style={{
           position: 'fixed',
-          bottom: 16,
-          left: -60,
-          width: 52,
-          height: 52,
+          bottom: 24,
+          left: 0,
+          width: 64,
+          height: 64,
           objectFit: 'contain',
-          animation: 'monkeyRoll 8s linear infinite',
+          animation: 'monkeyRoll 6s linear infinite',
           pointerEvents: 'none',
           zIndex: 9999,
         }}
