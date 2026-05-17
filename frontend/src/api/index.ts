@@ -1200,3 +1200,43 @@ export const exportAnalyticsSummary = async (filters?: {
     downloadUrl: response.data.download_url,
   };
 };
+
+// ── v1.4.0: User Management ────────────────────────────────────────────────────
+
+export interface AdminUser {
+  id: number;
+  username: string;
+  email?: string;
+  role: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  last_login_at?: string;
+}
+
+export const getAdminUsers = async (): Promise<AdminUser[]> => {
+  const response = await adminClient.get('/admin/users');
+  return response.data;
+};
+
+export const createAdminUser = async (payload: {
+  username: string;
+  password: string;
+  email?: string;
+  role: string;
+}): Promise<AdminUser> => {
+  const response = await adminClient.post('/admin/users', payload);
+  return response.data;
+};
+
+export const updateAdminUser = async (
+  id: number,
+  payload: { email?: string; role?: string; is_active?: boolean },
+): Promise<AdminUser> => {
+  const response = await adminClient.put(`/admin/users/${id}`, payload);
+  return response.data;
+};
+
+export const deleteAdminUser = async (id: number): Promise<void> => {
+  await adminClient.delete(`/admin/users/${id}`);
+};

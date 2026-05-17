@@ -17,6 +17,7 @@ import {
   LogoutOutlined,
   ThunderboltOutlined,
   CreditCardOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
 import { useI18n } from './i18n';
 import { isAuthenticated, getUser, clearTokens } from './utils/auth';
@@ -37,6 +38,7 @@ const LogsAdminPage          = lazy(() => import('./pages/LogsAdminPage'));
 const DashboardAdminPage     = lazy(() => import('./pages/DashboardAdminPage'));
 const NotificationsAdminPage = lazy(() => import('./pages/NotificationsAdminPage'));
 const ApiKeysAdminPage       = lazy(() => import('./pages/ApiKeysAdminPage'));
+const UsersAdminPage         = lazy(() => import('./pages/UsersAdminPage'));
 const LoginPage              = lazy(() => import('./pages/LoginPage'));
 
 const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -59,6 +61,7 @@ const PATH_TO_KEY: Record<string, [string, string]> = {
   '/admin/api-keys':      ['api-keys',   'grp-access'],
   '/admin/byok':          ['byok',       'grp-access'],
   '/admin/security':      ['security',   'grp-access'],
+  '/admin/users':         ['users',      'grp-access'],
   '/admin/credits':       ['credits',    'grp-billing'],
   '/admin/billing':       ['billing',    'grp-billing'],
   '/admin/logs':          ['logs',       'grp-observability'],
@@ -184,6 +187,11 @@ const App: React.FC = () => {
           icon: <SafetyOutlined />,
           label: <Link to="/admin/security">{t('nav.securityAdmin')}</Link>,
         },
+        {
+          key: 'users',
+          icon: <TeamOutlined />,
+          label: <Link to="/admin/users">{t('nav.usersAdmin')}</Link>,
+        },
       ],
     },
 
@@ -285,6 +293,7 @@ const App: React.FC = () => {
               <Route path="/admin/billing"        element={<RequireAuth><BillingAdminPage /></RequireAuth>} />
               <Route path="/admin/logs"           element={<RequireAuth><LogsAdminPage /></RequireAuth>} />
               <Route path="/admin/notifications"  element={<RequireAuth><NotificationsAdminPage /></RequireAuth>} />
+              <Route path="/admin/users"          element={<RequireAuth><UsersAdminPage /></RequireAuth>} />
               <Route path="*"                     element={<Navigate to="/admin/dashboard" replace />} />
             </Routes>
           </Suspense>
