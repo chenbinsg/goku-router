@@ -1,6 +1,6 @@
 # Goku-Router — Product Roadmap
 
-> Current version: **v0.5** | Updated: 2026-05
+> Current version: **v1.1.0** | Updated: 2026-05
 
 This document compares the current implementation against 8 desired capabilities and maps each gap into a phased delivery plan.
 
@@ -187,4 +187,4 @@ The following are already well-implemented and should not be re-architected:
 
 ---
 
-*Goku-Router Roadmap — v0.5 | © Chuck 2026*
+*Goku-Router Roadmap — v1.1.0 | © Chuck 2026*

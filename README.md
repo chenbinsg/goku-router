@@ -1,6 +1,6 @@
 # Goku-Router
 
-> **Version v0.2** | An enterprise-grade AI traffic control plane
+> **Version v1.1.0** | An enterprise-grade AI traffic control plane
 
 Goku-Router is a multi-model LLM gateway that routes requests intelligently across providers — not just by availability, but by workload class, policy, cost, and measured quality. It offers an OpenAI-compatible API surface so existing clients work without modification, while the routing layer makes governance-aware decisions that OpenRouter alone cannot.
 
