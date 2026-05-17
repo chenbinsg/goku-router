@@ -7,6 +7,16 @@ import { setTokens } from '../utils/auth';
 
 const { Title, Text } = Typography;
 
+const rollingKeyframes = `
+@keyframes rollLR {
+  0%   { left: -60px;  transform: rotate(0deg);   }
+  48%  { left: calc(100vw + 60px); transform: rotate(1080deg); }
+  50%  { left: calc(100vw + 60px); transform: rotate(1080deg) scaleX(-1); }
+  98%  { left: -60px;  transform: rotate(0deg)    scaleX(-1); }
+  100% { left: -60px;  transform: rotate(0deg);   }
+}
+`;
+
 const BACKEND =
   (import.meta as any).env?.VITE_BACKEND_URL ||
   `http://localhost:${(import.meta as any).env?.VITE_BACKEND_PORT || '8159'}`;
@@ -46,8 +56,27 @@ const LoginPage: React.FC = () => {
         alignItems: 'center',
         justifyContent: 'center',
         background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+        overflow: 'hidden',
       }}
     >
+      <style>{rollingKeyframes}</style>
+      {/* Rolling monkey */}
+      <img
+        src="/logo.png"
+        alt=""
+        style={{
+          position: 'fixed',
+          bottom: 16,
+          left: -60,
+          width: 52,
+          height: 52,
+          objectFit: 'contain',
+          objectPosition: 'center',
+          animation: 'rollLR 8s linear infinite',
+          pointerEvents: 'none',
+          zIndex: 0,
+        }}
+      />
       <Card
         style={{
           width: 400,
