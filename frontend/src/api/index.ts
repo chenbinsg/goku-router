@@ -68,9 +68,50 @@ adminClient.interceptors.response.use(
   }
 );
 
-export const getByokKeys = async (): Promise<ByokKey[]> => [];
+// ── v1.5.0: BYOK Management ──────────────────────────────────────────────────
 
-export const addByokKey = async (key: ByokKey): Promise<ByokKey> => key;
+export interface ByokKeyItem {
+  id: number;
+  label: string;
+  provider: string;
+  key_preview: string;
+  org_label?: string;
+  project_label?: string;
+  is_active: boolean;
+  description?: string;
+  created_at: string;
+  updated_at: string;
+  last_used_at?: string;
+}
+
+export const getByokKeys = async (): Promise<ByokKeyItem[]> => {
+  const res = await adminClient.get('/admin/byok');
+  return res.data;
+};
+
+export const createByokKey = async (payload: {
+  label: string;
+  provider: string;
+  api_key: string;
+  org_label?: string;
+  project_label?: string;
+  description?: string;
+}): Promise<ByokKeyItem> => {
+  const res = await adminClient.post('/admin/byok', payload);
+  return res.data;
+};
+
+export const updateByokKey = async (
+  id: number,
+  payload: { label?: string; is_active?: boolean; description?: string; org_label?: string; project_label?: string },
+): Promise<ByokKeyItem> => {
+  const res = await adminClient.put(`/admin/byok/${id}`, payload);
+  return res.data;
+};
+
+export const deleteByokKey = async (id: number): Promise<void> => {
+  await adminClient.delete(`/admin/byok/${id}`);
+};
 
 export const getCredits = async (): Promise<Credit[]> => [];
 

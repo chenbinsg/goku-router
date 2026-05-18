@@ -894,3 +894,39 @@ class AdminUserUpdate(BaseModel):
 class PasswordChangeRequest(BaseModel):
     current_password: str
     new_password: str
+
+
+# ── v1.5.0: BYOK Management ──────────────────────────────────────────────────
+
+class ByokKeyItem(BaseModel):
+    id: int
+    label: str
+    provider: str
+    key_preview: str
+    org_label: Optional[str] = None
+    project_label: Optional[str] = None
+    is_active: bool
+    description: Optional[str] = None
+    created_at: str
+    updated_at: str
+    last_used_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ByokKeyCreate(BaseModel):
+    label: str
+    provider: str
+    api_key: str
+    org_label: Optional[str] = None
+    project_label: Optional[str] = None
+    description: Optional[str] = None
+
+
+class ByokKeyUpdate(BaseModel):
+    label: Optional[str] = None
+    is_active: Optional[bool] = None
+    description: Optional[str] = None
+    org_label: Optional[str] = None
+    project_label: Optional[str] = None

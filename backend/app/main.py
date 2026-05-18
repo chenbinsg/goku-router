@@ -927,6 +927,36 @@ def run_ab_significance_check(db: Session = Depends(get_db)):
     return crud.run_ab_significance_check(db=db)
 
 
+# ── v1.5.0: BYOK Management ──────────────────────────────────────────────────
+
+@app.get("/admin/byok", response_model=list[schemas.ByokKeyItem])
+def list_byok_keys(db: Session = Depends(get_db)):
+    """List all BYOK keys (API key values are masked)."""
+    return crud.list_byok_keys(db=db)
+
+
+@app.post("/admin/byok", response_model=schemas.ByokKeyItem, status_code=201)
+def create_byok_key(payload: schemas.ByokKeyCreate, db: Session = Depends(get_db)):
+    """Register a new BYOK key. The raw key is stored server-side; only a preview is returned."""
+    return crud.create_byok_key(db=db, payload=payload)
+
+
+@app.put("/admin/byok/{key_id}", response_model=schemas.ByokKeyItem)
+def update_byok_key(key_id: int, payload: schemas.ByokKeyUpdate, db: Session = Depends(get_db)):
+    """Update label, active status, description, or scope of a BYOK key."""
+    result = crud.update_byok_key(db=db, key_id=key_id, payload=payload)
+    if result is None:
+        raise HTTPException(status_code=404, detail="BYOK key not found")
+    return result
+
+
+@app.delete("/admin/byok/{key_id}", status_code=204)
+def delete_byok_key(key_id: int, db: Session = Depends(get_db)):
+    """Permanently delete a BYOK key."""
+    if not crud.delete_byok_key(db=db, key_id=key_id):
+        raise HTTPException(status_code=404, detail="BYOK key not found")
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))

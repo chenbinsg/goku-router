@@ -103,6 +103,23 @@ class Provider(Base):
     models = relationship("ModelCatalog", back_populates="provider")
 
 
+class ByokKey(Base):
+    """Bring-Your-Own-Key: per-org/project provider API keys. (v1.5.0)"""
+    __tablename__ = "byok_keys"
+    id = Column(Integer, primary_key=True, index=True)
+    label = Column(String(255), nullable=False)                # 用户自定义名称
+    provider = Column(String(64), nullable=False)              # openai / anthropic / gemini / azure / custom
+    api_key_encrypted = Column(Text, nullable=False)           # 存储明文（生产建议 AES-256）
+    key_preview = Column(String(32), nullable=False)           # 前8+后4，用于展示
+    org_label = Column(String(255), nullable=True)             # 所属组织（可选）
+    project_label = Column(String(255), nullable=True)         # 所属项目（可选）
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False)
+    updated_at = Column(DateTime, nullable=False)
+    last_used_at = Column(DateTime, nullable=True)
+    description = Column(Text, nullable=True)
+
+
 class RouterApiKey(Base):
     __tablename__ = "router_api_keys"
     id = Column(Integer, primary_key=True, index=True)

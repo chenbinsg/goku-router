@@ -5102,3 +5102,91 @@ def _user_to_schema(user: models.AdminUser) -> schemas.AdminUserItem:
         updated_at=user.updated_at.isoformat(),
         last_login_at=user.last_login_at.isoformat() if user.last_login_at else None,
     )
+
+
+# ── v1.5.0: BYOK Management ──────────────────────────────────────────────────
+
+def _make_key_preview(api_key: str) -> str:
+    """Return first-8 + '...' + last-4 for safe display."""
+    if len(api_key) <= 12:
+        return api_key[:4] + "..." + api_key[-2:]
+    return api_key[:8] + "..." + api_key[-4:]
+
+
+def _byok_to_schema(key: models.ByokKey) -> schemas.ByokKeyItem:
+    return schemas.ByokKeyItem(
+        id=key.id,
+        label=key.label,
+        provider=key.provider,
+        key_preview=key.key_preview,
+        org_label=key.org_label,
+        project_label=key.project_label,
+        is_active=key.is_active,
+        description=key.description,
+        created_at=key.created_at.isoformat(),
+        updated_at=key.updated_at.isoformat(),
+        last_used_at=key.last_used_at.isoformat() if key.last_used_at else None,
+    )
+
+
+def list_byok_keys(db: Session) -> list[schemas.ByokKeyItem]:
+    keys = db.query(models.ByokKey).order_by(models.ByokKey.created_at.desc()).all()
+    return [_byok_to_schema(k) for k in keys]
+
+
+def create_byok_key(db: Session, payload: schemas.ByokKeyCreate) -> schemas.ByokKeyItem:
+    now = datetime.now(UTC)
+    key = models.ByokKey(
+        label=payload.label,
+        provider=payload.provider,
+        api_key_encrypted=payload.api_key,
+        key_preview=_make_key_preview(payload.api_key),
+        org_label=payload.org_label,
+        project_label=payload.project_label,
+        description=payload.description,
+        is_active=True,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(key)
+    db.commit()
+    db.refresh(key)
+    return _byok_to_schema(key)
+
+
+def update_byok_key(db: Session, key_id: int, payload: schemas.ByokKeyUpdate) -> schemas.ByokKeyItem | None:
+    key = db.query(models.ByokKey).filter(models.ByokKey.id == key_id).first()
+    if key is None:
+        return None
+    if payload.label is not None:
+        key.label = payload.label
+    if payload.is_active is not None:
+        key.is_active = payload.is_active
+    if payload.description is not None:
+        key.description = payload.description
+    if payload.org_label is not None:
+        key.org_label = payload.org_label
+    if payload.project_label is not None:
+        key.project_label = payload.project_label
+    key.updated_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(key)
+    return _byok_to_schema(key)
+
+
+def delete_byok_key(db: Session, key_id: int) -> bool:
+    key = db.query(models.ByokKey).filter(models.ByokKey.id == key_id).first()
+    if key is None:
+        return False
+    db.delete(key)
+    db.commit()
+    return True
+
+
+def get_byok_key_secret(db: Session, key_id: int) -> str | None:
+    """Return the raw API key for internal routing use only — never expose in API responses."""
+    key = db.query(models.ByokKey).filter(
+        models.ByokKey.id == key_id,
+        models.ByokKey.is_active == True,
+    ).first()
+    return key.api_key_encrypted if key else None
