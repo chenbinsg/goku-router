@@ -92,11 +92,14 @@ adminClient.interceptors.response.use(
       const { access_token, refresh_token: newRefresh, username, role } = resp.data;
       const user = getUser();
       setTokens(access_token, newRefresh, username ?? user?.username ?? '', role ?? user?.role ?? '');
-      _refreshQueue.forEach((cb) => cb(access_token));
+      const queue = _refreshQueue;
       _refreshQueue = [];
+      queue.forEach((cb) => cb(access_token));
       original.headers['Authorization'] = `Bearer ${access_token}`;
       return adminClient(original);
     } catch {
+      // Refresh failed — reject all queued requests then redirect
+      _refreshQueue = [];
       clearTokens();
       window.location.href = '/login';
       return Promise.reject(error);
