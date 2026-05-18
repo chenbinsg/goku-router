@@ -1,6 +1,8 @@
 # Goku-Router — Product Roadmap
 
 > 当前版本：**v1.4.1** | 更新时间：2026-05
+>
+> **战略定位：** Goku-Router 是所有 LLM 流量的统一入口，负责 Provider 管理、路由决策、成本计量与计费；AIOS 等上游平台保持轻量，LLM 相关能力一律在此实现。
 
 ---
 
@@ -115,6 +117,7 @@
 - [ ] **结构化日志**：JSON Lines 输出到 stdout，兼容 Fluentd / Logstash / ELK
 - [ ] **Chargeback 报告**：按 project 精细分摊共享网关成本，支持 CSV 导出
 - [ ] **成本预测**：基于历史趋势预测下月消耗，邮件/Webhook 周报
+- [ ] **成本基准参考配置**：README 公开各 Provider 价格对照表 + 典型用量 CSV 样本（源自 AIOS T06）
 
 ---
 
@@ -144,23 +147,55 @@
 
 ---
 
-### 🚧 v1.9.0 — 生态 & 开发者体验（Ecosystem）
+### 🚧 v1.9.0 — LLM 生态扩展（LLM Ecosystem）
 
-**目标：降低接入门槛，扩大 Provider 覆盖**
+**目标：覆盖主流 LLM 提供商，支持本地部署模型，降低接入门槛**
 
-- [ ] **预置 Provider 适配器**：Anthropic / Gemini / Cohere / Mistral / Together 原生 SDK 对接
-- [ ] **本地模型支持**：Ollama / vLLM / LM Studio 统一接入，内网部署全流程打通
+> 本版本整合了原 AIOS T04（OpenRouter + vLLM 兼容层）和原 AIOS v1.9.0 LLM 广度计划，统一在 Goku-Router 实现。
+
+#### Provider 适配器（P1）
+
+- [ ] **OpenRouter 原生适配**：统一通过 OpenRouter 路由到 100+ 模型（源自 AIOS T04）
+- [ ] **vLLM / LM Studio 兼容层**：OpenAI-compatible 端点自动接入，内网部署全流程打通（源自 AIOS T04）
+- [ ] **Ollama 本地模型**：一键接入本地运行的 Llama / Mistral / Qwen 系列
+- [ ] **NVIDIA NIM API 适配**：企业级推理加速接入
+- [ ] **月之暗面 Kimi 原生适配**：streaming + 超长 context（128K+）
+- [ ] **MiniMax / GLM-4 适配**：国内模型合规路由
+- [ ] **Google Gemini 原生适配**：含 Vision + PDF 多模态（源自 AIOS v1.9.0）
+- [ ] **Anthropic / Cohere / Mistral / Together 原生 SDK 对接**
+
+#### 开发者体验（P1）
+
 - [ ] **Python SDK**：`pip install goku-router`，支持 OpenAI 兼容接口
 - [ ] **Node.js SDK**：`npm install goku-router`
 - [ ] **Swagger / Redoc 文档站**：`/docs` 在线 API 文档，自动从代码生成
 - [ ] **CLI 工具**：`goku chat "hello"` / `goku providers list` 命令行快速管理
 - [ ] **Webhook 回调**：请求完成后推送结构化事件到业务系统
 
+#### Provider 健康监控（P2）
+
+- [ ] **延迟 + 错误率实时 Dashboard**：per-Provider per-Model 健康面板
+- [ ] **SLA 报告**：月度各 Provider 可用性 + P99 延迟报告
+
 ---
 
-### 🚧 v2.0.0 — 高可用 & 多实例（HA & Scale）
+### 🚧 v2.0.0 — Agent-based Billing + 高可用（HA & Scale）
 
-**目标：支持水平扩展，达到 99.9% 可用性 SLA**
+**目标：从 API-based 计费升级到 Agent-based 计费；支持水平扩展，达到 99.9% 可用性 SLA**
+
+#### Agent-based Billing（P1）
+
+> 当前 Goku-Router 已实现 API-based Billing（按 Token/请求计费）。v2.0 扩展为按 Agent 调用量计费，支持上游平台（AIOS 等）上报 Agent 维度的用量数据。
+
+- [ ] **AgentBillingRecord 模型**：记录 caller_platform / agent_id / tenant_id / token_count / cost_usd
+- [ ] **`POST /v1/agent-usage`** 上报接口：供 AIOS 等平台批量上报 Agent 用量
+- [ ] **Agent 维度账单聚合**：按 agent_id / tenant_id / 时间段汇总消费
+- [ ] **Agent 配额管理**：per-agent 月度 token 配额 + 超限告警
+- [ ] **上游平台 API Key 绑定**：AIOS 平台级别的 API Key，区别于最终用户 Key
+- [ ] **Agent 计费 Dashboard**：管理员查看各 Agent 成本占比 + 趋势
+- [ ] **Invoice 导出**：按 Agent / 租户维度导出 CSV 账单
+
+#### 高可用 & 多实例（P1）
 
 - [ ] **Redis 集群模式**：会话共享、限流计数器、缓存跨实例同步
 - [ ] **多实例无状态部署**：熔断器状态、质量评分持久化到 Redis / DB
@@ -175,21 +210,22 @@
 
 ```
 v1.0.0  基础能力修复       ████████████████████  ✅ DONE
-v1.0.1  核心路由           ████████████████░░░░  ✅ DONE (85%)
-v1.1.0  安全管控           ██████████████░░░░░░  ✅ DONE (75%)
-v1.2.0  可观测性 & 计费    ██████████████████░░  ✅ DONE (90%)
-v1.3.0  自演化路由         ████████████████░░░░  ✅ DONE (80%)
+v1.0.1  核心路由           ████████████████████  ✅ DONE
+v1.1.0  安全管控           ████████████████████  ✅ DONE
+v1.2.0  可观测性 & 计费    ████████████████████  ✅ DONE
+v1.3.0  自演化路由         ████████████████████  ✅ DONE
 v1.4.0  登录 & 用户管理    ████████████████████  ✅ DONE
 v1.4.1  管理台 UI 完善     ████████████████████  ✅ DONE
-──────────────────────────────────────────────────
+──────────────────────────────────────────────────────────
 v1.5.0  可靠性 & 告警      ░░░░░░░░░░░░░░░░░░░░  📋 PLANNED
 v1.6.0  可观测性升级       ░░░░░░░░░░░░░░░░░░░░  📋 PLANNED
 v1.7.0  安全加固           ░░░░░░░░░░░░░░░░░░░░  📋 PLANNED
 v1.8.0  路由智能化+        ░░░░░░░░░░░░░░░░░░░░  📋 PLANNED
-v1.9.0  生态 & 开发者体验  ░░░░░░░░░░░░░░░░░░░░  📋 PLANNED
-v2.0.0  高可用 & 多实例    ░░░░░░░░░░░░░░░░░░░░  📋 PLANNED
+v1.9.0  LLM 生态扩展       ░░░░░░░░░░░░░░░░░░░░  📋 PLANNED
+v2.0.0  Agent 计费 + HA    ░░░░░░░░░░░░░░░░░░░░  📋 PLANNED
 ```
 
 ---
 
-*Goku-Router Roadmap — v1.4.1 | © Chuck 2026*
+*Goku-Router Roadmap — v1.4.1 | © Chuck 2026*  
+*上游平台路线图详见 [AIOS ROADMAP](../agent/ROADMAP.md)*
