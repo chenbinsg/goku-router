@@ -40,13 +40,13 @@ import type {
 
 export { createChatCompletion, createChatCompletionStream, createEmbedding, listModels, exportBilling };
 
-import { getAccessToken, clearTokens } from '../utils/auth';
+import { getAccessToken, getRefreshToken, setTokens, clearTokens, getUser } from '../utils/auth';
 
-const adminClient = axios.create({
-  baseURL: import.meta.env.VITE_BACKEND_URL || `http://localhost:${import.meta.env.VITE_BACKEND_PORT || '8159'}`,
-});
+const BASE_URL = import.meta.env.VITE_BACKEND_URL || `http://localhost:${import.meta.env.VITE_BACKEND_PORT || '8159'}`;
 
-// Attach JWT on every /admin request
+const adminClient = axios.create({ baseURL: BASE_URL });
+
+// Attach JWT on every request
 adminClient.interceptors.request.use((config) => {
   const token = getAccessToken();
   if (token) {
@@ -56,15 +56,53 @@ adminClient.interceptors.request.use((config) => {
   return config;
 });
 
-// On 401, clear tokens and redirect to login
+// Auto-refresh on 401: try refresh token once, then retry original request
+let _refreshing = false;
+let _refreshQueue: Array<(token: string) => void> = [];
+
 adminClient.interceptors.response.use(
   (res) => res,
-  (error) => {
-    if (error?.response?.status === 401) {
+  async (error) => {
+    const original = error.config;
+    if (error?.response?.status !== 401 || original._retry) {
+      return Promise.reject(error);
+    }
+    original._retry = true;
+
+    const refreshToken = getRefreshToken();
+    if (!refreshToken) {
       clearTokens();
       window.location.href = '/login';
+      return Promise.reject(error);
     }
-    return Promise.reject(error);
+
+    if (_refreshing) {
+      // Queue this request until refresh completes
+      return new Promise((resolve) => {
+        _refreshQueue.push((newToken) => {
+          original.headers['Authorization'] = `Bearer ${newToken}`;
+          resolve(adminClient(original));
+        });
+      });
+    }
+
+    _refreshing = true;
+    try {
+      const resp = await axios.post(`${BASE_URL}/auth/refresh`, { refresh_token: refreshToken });
+      const { access_token, refresh_token: newRefresh, username, role } = resp.data;
+      const user = getUser();
+      setTokens(access_token, newRefresh, username ?? user?.username ?? '', role ?? user?.role ?? '');
+      _refreshQueue.forEach((cb) => cb(access_token));
+      _refreshQueue = [];
+      original.headers['Authorization'] = `Bearer ${access_token}`;
+      return adminClient(original);
+    } catch {
+      clearTokens();
+      window.location.href = '/login';
+      return Promise.reject(error);
+    } finally {
+      _refreshing = false;
+    }
   }
 );
 
