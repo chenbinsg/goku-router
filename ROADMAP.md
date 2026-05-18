@@ -1,217 +1,195 @@
 # Goku-Router — Product Roadmap
 
-> Current version: **v1.4.0** | Updated: 2026-05
-
-This document compares the current implementation against 8 desired capabilities and maps each gap into a phased delivery plan.
+> 当前版本：**v1.4.1** | 更新时间：2026-05
 
 ---
 
-## Feature Readiness
+## 已发布版本
 
-| # | Feature | Before (baseline) | After v1.0.0–v1.3.0 | Readiness |
-|---|---------|--------|-----------------|-----------|
-| 1 | **Internal / External Host Routing** | No `host_type` flag. No circuit breaker. Failed providers stay in candidate list. | ✅ `host_type` / `region` on Provider. Circuit breaker (CLOSED/OPEN/HALF_OPEN). Internal providers use shorter timeout. | **75%** |
-| 2 | **Smart Routing** (cost / context / cache) | Token counting used `str.split()`. Latency stats never updated from real traffic. | ✅ tiktoken real token counting. Live latency EMA updated after every call. Cost computed from actual tokens. ProviderQualityScore multiplier in route score. | **85%** |
-| 3 | **Security Controls** | Request-side keyword blocking only. No response filtering. No PII detection. No regex. | ✅ `safety.py`: request + response filtering. Regex patterns. PII redaction (6 built-in patterns). `log_prompt` / `log_completion` flags. | **70%** |
-| 4 | **Self-Evolution** | Recalibration only on manual API call. No automatic trigger. No rollback. | ✅ Drift monitor job (every 6h): auto-recalibrate if ≥ 500 new logs + drift > 10%. Auto-launch A/B. Nightly z-test → auto-promote/rollback. ProviderQualityScore feeds into route scoring. | **80%** |
-| 5 | **Logs & Audit** | Audit log write-only. Sensitive data in plain text. No retention enforcement. | ✅ `log_prompt` / `log_completion` flags. Audit log on all guardrail events. Log retention job (daily 02:00 UTC). Log search API `/admin/logs`. | **75%** |
-| 6 | **Token Usage & Anomaly Detection** | Synthetic token counts. Thresholds hardcoded. Quota never enforced. | ✅ Real token counts from tiktoken. Configurable `AnomalyThresholdConfig` per org. Hourly anomaly sweep job. Token usage dashboard `/admin/analytics/token-usage`. | **80%** |
-| 7 | **Billing** | `BillingRecord` never written. No spend tracking. No quota enforcement. | ✅ `BillingRecord` written on every request. Monthly rollup job → `MonthlyBillingSummary`. Invoice export (JSON + CSV) `/admin/billing/invoice`. | **80%** |
-| 8 | **Database & End-to-End** | SQLite only. No DB health check. No schema versioning. | ✅ `/health` checks DB connectivity + circuit breaker states. `ensure_schema()` migrations extended for all new columns. | **70%** |
+### ✅ v1.0.0 — 基础能力修复（Foundation Fix）
+
+- 真实 Token 计数（tiktoken，降级 word-count）
+- BillingRecord 写入（每次请求 / 缓存命中均记录）
+- 配额执行（quota_requests / quota_spend_usd / expires_at → HTTP 429）
+- 消费追踪（RouterApiKey.spend_usd 实时累加）
+- DB 健康检查（`GET /health` 查询 `SELECT 1`）
+- Schema 迁移（ensure_schema() 覆盖所有新列）
 
 ---
 
-## ✅ Phase 0 — Foundation Fix `v1.0.0` — **SHIPPED**
+### ✅ v1.0.1 — 核心路由（Core Routing）
 
-### Completed
-- ✅ **Real token counting** — `services/token_counter.py` using tiktoken; falls back to word-count if not installed
-- ✅ **BillingRecord writes** — `_write_billing_record()` called on every successful request and cache hit; fields: `request_id`, `model`, `provider`, `tokens`, `cost_usd`, `upstream_cost_usd`, `cache_hit`, `fallback_used`
-- ✅ **Quota enforcement** — `_check_quota()` checks `quota_requests`, `quota_spend_usd`, `expires_at` before routing; returns HTTP 429
-- ✅ **Spend tracking** — `RouterApiKey.spend_usd` incremented after every request
-- ✅ **DB health check** — `GET /health` now queries `SELECT 1` and reports circuit breaker states
-- ✅ **Schema migrations** — `ensure_schema()` extended with all new v1.0.0–v1.1.0 columns
-
-### Remaining (v1.4.0)
-- ⬜ MySQL / Alembic versioned migrations (SQLite still default for dev)
-- ✅ Monthly billing rollup job — shipped in v1.2.0
-- ✅ Invoice export endpoint — shipped in v1.2.0
+- `host_type`（internal / external）+ `region` 字段
+- 电路熔断器（CLOSED → OPEN → HALF_OPEN，5 次失败触发，60s 冷却）
+- 熔断器集成到路由执行链
+- 延迟 EMA 实时更新（α=0.1，每次真实调用后更新）
+- 内部 Provider 超时 15s，外部 30s
+- `GET /admin/circuit-breakers` + `POST /admin/circuit-breakers/{name}/reset`
 
 ---
 
-## ✅ Phase 1 — Core Routing `v1.0.1` — **SHIPPED**
+### ✅ v1.1.0 — 安全管控（Security）
 
-### Completed
-- ✅ **`host_type` field** — `Provider.host_type` (`internal` / `external`) + `region` field
-- ✅ **Circuit breaker** — `services/circuit_breaker.py`; CLOSED → OPEN (5 failures) → HALF_OPEN (60s cooldown); thread-safe singleton
-- ✅ **Circuit breaker integrated in routing** — `execute_chat_completion()` checks `circuit_breakers.is_available()` before calling provider; records success/failure after each call
-- ✅ **Live latency EMA** — `Provider.avg_latency_ms` updated via exponential moving average (α=0.1) after every real call
-- ✅ **Internal provider timeout** — 15s for `host_type=internal`, 30s for external
-- ✅ **Admin endpoints** — `GET /admin/circuit-breakers` (state overview), `POST /admin/circuit-breakers/{name}/reset` (manual reset)
-
-### Remaining (v1.4.0)
-- ⬜ `WorkspaceRouteDefault.prefer_internal` flag — explicit preference to route internal-first
-- ⬜ Health heartbeat loop — background job probing internal provider `/health` every 30s
-- ⬜ Semantic prompt caching (embedding-based similarity)
+- `services/safety.py` 统一请求 + 响应安全流水线
+- 请求过滤：关键词（精确，大小写不敏感）+ 正则 → 返回结构化 SafetyViolation
+- 响应过滤：所有 Provider 返回值过滤后再返回客户端
+- PII 检测 & 脱敏：6 种内置正则（邮箱、JP/US 手机、信用卡、SSN、JP My Number）
+- Block vs Redact 模式
+- 响应拦截写入 AuditLog
+- `POST /v1/feedback`（rating 1–5、success、notes）
 
 ---
 
-## ✅ Phase 2 — Security `v1.1.0` — **SHIPPED**
+### ✅ v1.2.0 — 可观测性 & 计费（Observability & Billing）
 
-### Completed
-- ✅ **`services/safety.py`** — unified request + response safety pipeline
-- ✅ **Request filtering** — blocked words (exact, case-insensitive) + regex patterns; returns structured `SafetyViolation`
-- ✅ **Response filtering** — all provider completions pass through `scan_response()` before returning to client
-- ✅ **PII detection & redaction** — 6 built-in regex patterns: email, JP phone, US phone, credit card, US SSN, JP My Number; redacts in-place
-- ✅ **Block vs Redact modes** — hard block for keyword/regex hits; soft redact for PII (response still returned with spans replaced)
-- ✅ **New guardrail fields** — `blocked_response_words`, `regex_patterns`, `response_regex_patterns`, `detect_pii`, `log_prompt`, `log_completion` on `WorkspaceGuardrailConfig`
-- ✅ **Audit on response block** — every blocked response writes to `AuditLog`
-- ✅ **Feedback endpoint** — `POST /v1/feedback` accepts `rating` (1–5), `success` (bool), `notes`; stored in `route_trace_json` for future recalibration
-
-### Remaining (v1.4.0)
-- ⬜ Audit webhook — push high-severity events to configurable org webhook URL
-- ⬜ Named PII categories with per-workspace block/redact/allow config
-- ⬜ Microsoft Presidio integration (replaces regex patterns with ML-based NER)
+- 月度账单 Rollup Job（每月 1 日 01:00 UTC）→ MonthlyBillingSummary
+- Invoice 导出（JSON + CSV）`GET /admin/billing/invoice`
+- Token 用量仪表盘（日/周/月，按 model/provider/org 汇总）
+- 可配置异常阈值（AnomalyThresholdConfig，per-org）
+- 每小时异常巡检 Job（失败率 / 延迟 / 成本 spike → NotificationRecord）
+- 日志保留 Job（每日 02:00 UTC，删除超期 RequestLog）
+- 日志搜索 API（`GET /admin/logs`，支持分页和多维过滤）
 
 ---
 
-## ✅ Phase 3 — Observability & Billing `v1.2.0` — **SHIPPED**
+### ✅ v1.3.0 — 自演化路由（Self-Evolution）
 
-**Goal:** Features 5, 6, 7 — full billing pipeline, configurable anomaly detection, log export.
-
-### 3.1: Billing Pipeline
-
-- ✅ **Monthly rollup job** (APScheduler) — `rollup_monthly_billing()` runs 1st of each month 01:00 UTC; aggregates `BillingRecord` → `MonthlyBillingSummary` by (org, project, model, provider)
-- ✅ **Invoice export** — `GET /admin/billing/invoice?org_id=&month=` + `GET /admin/billing/invoice/export` (CSV); falls back to live aggregation mid-month
-- ✅ **Monthly summaries list** — `GET /admin/billing/summaries` — browse pre-rolled rollups
-- ⬜ **Chargeback report** — split shared gateway costs by `project_id` (v1.4.0)
-- ⬜ **Paginated billing export** — remove 100-row limit from CSV export (v1.4.0)
-
-### 3.2: Token Usage Dashboard
-
-- ✅ `/admin/analytics/token-usage` — daily/weekly/monthly token burn by model, provider, org
-- ✅ Quota progress per API key (used / limit)
-- ✅ Cost trend — week-over-week % change
-- ✅ Top 10 most expensive requests per org
-
-### 3.3: Configurable Anomaly Detection
-
-- ✅ `AnomalyThresholdConfig` model — per-org configurable thresholds (failure rate, latency, cost multiplier, token multiplier, rolling window)
-- ✅ `GET/PUT /admin/anomaly-thresholds` — CRUD for threshold configs
-- ✅ Hourly `run_anomaly_sweep()` job — reads live thresholds, detects provider failure spikes, latency spikes, cost spikes; writes `NotificationRecord`
-- ✅ 7-day rolling baseline for cost spike detection
-
-### 3.4: Log Export & Retention
-
-- ✅ **Log retention job** — `enforce_log_retention()` runs daily 02:00 UTC; deletes `RequestLog` rows older than `LOG_RETENTION_DAYS` (default 90)
-- ✅ **Log search API** — `GET /admin/logs?q=&model=&provider=&from=&to=&org_id=` with pagination
-- ✅ **Manual retention trigger** — `POST /admin/logs/enforce-retention`
-- ⬜ Structured JSON Lines to stdout (Fluentd/Logstash) — v1.4.0
-- ⬜ Optional S3/GCS export — v1.4.0
-
-**Deliverable:** Finance can pull invoices without engineering. On-call gets paged on provider spikes. Logs auto-expire per retention policy. ✅ **DONE**
+- 漂移监控 Job（每 6h）：ProviderQualityScore 更新 + 自动重校准
+- 重校准触发条件：≥ 500 新日志 + 权重漂移 > 10%
+- RecalibrationEvent 审计表
+- A/B 实验自动发起（漂移 > 10% → 10% 流量挑战组）
+- 夜间 z-test（03:00 UTC）：双比例检验，p < 0.05 且 ≥ 7 天 → 自动晋升/回滚
+- ProviderQualityScore：成功率 / Schema 合规率 / 工具调用成功率合成评分
+- 质量分乘入路由评分，自动惩罚劣质 Provider
+- `GET /admin/provider-quality-scores`
+- `POST /admin/provider-quality-scores/refresh`
 
 ---
 
-## ✅ Phase 4 — Self-Evolution `v1.3.0` — **SHIPPED**
+### ✅ v1.4.0 — 登录 & 用户管理（Auth & User Management）
 
-**Goal:** Feature 4 — router improves itself from production traffic without human intervention.
-
-### 4.1: Automatic Recalibration Trigger
-
-- ✅ **Drift monitor job** (APScheduler, every 6h): updates `ProviderQualityScore`, then calls `run_drift_monitor()` which auto-recalibrates when drift exceeds threshold
-- ✅ **Recalibration guard**: only fires if ≥ 500 new `RequestLog` rows since last run
-- ✅ **`RecalibrationEvent`** audit table: records trigger type, samples used, weight deltas (JSON), experiment name if auto-launched
-- ✅ **`GET /admin/recalibration-events`** — audit trail API
-- ✅ **`POST /admin/drift-monitor/run`** — manual trigger with configurable threshold
-
-### 4.2: Statistical A/B Experiment Lifecycle
-
-- ✅ **Auto-launch**: drift monitor creates `RouteScoringExperiment` at 10% traffic when weight delta > 10%; supersedes any running experiment
-- ✅ **Nightly significance check** (03:00 UTC): two-proportion z-test on success rate across control/challenger buckets; user feedback weighted 2× vs system signals
-- ✅ **Auto-promote**: promotes challenger profile if p < 0.05 and ran ≥ 7 days (writes AuditLog)
-- ✅ **Auto-rollback**: stops experiment + writes NotificationRecord alert if challenger significantly worse
-- ✅ **`POST /admin/router-scoring/ab-check`** — manual significance check trigger
-
-### 4.3: Provider Quality Learning
-
-- ✅ `ProviderQualityScore` model — per (provider, workload_class): success rate, schema validity rate, tool call success rate, avg latency, avg cost, composite quality score
-- ✅ Quality score multiplied into `_provider_route_score()` — low-quality providers are penalised automatically
-- ✅ `GET /admin/provider-quality-scores` — browse all scores
-- ✅ `POST /admin/provider-quality-scores/refresh` — manual recompute
-- ✅ Updated every 6h by drift monitor job
-
-### 4.4: Workload Classifier Upgrade
-
-- ⬜ Lightweight ML classifier (logistic regression) — v1.4.0
-- ⬜ Monthly retrain from `RequestLog` labels — v1.4.0
-- (Current rule-based classifier performs well for now; ML upgrade deferred to v1.4.0)
-
-### 4.5: Feedback Loop Completion
-
-- ✅ `POST /v1/feedback` — endpoint live, data stored in `route_trace_json`
-- ✅ User feedback score (1–5 rating) weighted 2× in A/B significance check (`feedback_boost`)
-- ✅ Feedback delta applied to challenger success rate in z-test evaluation
-
-**Deliverable:** Routing model auto-improves every 6h from traffic. A/B tests run and conclude automatically. Provider quality scores penalise underperformers. ✅ **DONE**
+- AdminUser 模型（username / password_hash bcrypt / role / email / is_active / last_login_at）
+- `services/auth.py`：bcrypt 哈希、JWT Access（30min）+ Refresh（7d）HS256
+- `POST /auth/login` / `POST /auth/refresh` / `POST /auth/logout`
+- 所有 `/admin/*` 路由 JWT 中间件保护（OPTIONS 放行 CORS）
+- RBAC：superadmin（全权）/ admin（除用户管理）/ viewer（只读）
+- `GET/PUT /admin/users/me`（自助改邮箱）
+- `PUT /admin/users/me/password`（改密码，需验证当前密码）
+- `GET/POST/PUT/DELETE /admin/users`（superadmin 专属）
+- 启动自动 seed superadmin（ADMIN_USER / ADMIN_PASSWORD 环境变量）
 
 ---
 
-## Progress Summary
+### ✅ v1.4.1 — 管理台 UI 完善（Admin UI Polish）
+
+- 个人资料页（`/admin/profile`）：查看信息、改邮箱、改密码弹窗
+- 头部下拉菜单：个人资料 / 修改密码 / 退出登录
+- 用户管理页接入侧边栏导航（Access & Security 分组）
+- 修复 `/v1/models` 鉴权问题（JWT 被误当 Router API Key 验证导致 401）
+- 登录页底部版本号展示
+
+---
+
+## 未来规划
+
+### 🚧 v1.5.0 — 可靠性 & 告警（Reliability & Alerting）
+
+**目标：生产环境零感知故障切换 + 异常第一时间通知到人**
+
+- [ ] **流式 Fallback**：流式请求中途 Provider 断连，自动无缝切换到 backup，客户端不感知
+- [ ] **重试预算**：可配置最大重试次数 / 总超时预算，防止雪崩
+- [ ] **内部 Provider 健康心跳**：后台 Job 每 30s 主动探活，提前发现故障
+- [ ] **Webhook 告警推送**：异常通知推送到钉钉 / Feishu / Slack / PagerDuty（可配置）
+- [ ] **实时成本预警**：消费超出预算阈值时立即告警 + 可选自动熔断
+- [ ] **Token 黑名单**（Redis 支持）：服务端真正注销 JWT，退出即失效
+
+---
+
+### 🚧 v1.6.0 — 可观测性升级（Observability+）
+
+**目标：对接企业标准监控体系，支持 SRE 级别排障**
+
+- [ ] **OpenTelemetry 导出**：Trace / Metric / Log 统一导出，支持 Grafana / Datadog / Jaeger
+- [ ] **延迟分位数**：P50 / P95 / P99 per Provider per Model，告别平均数掩盖长尾
+- [ ] **Provider 错误细分**：rate_limit / timeout / server_error / schema_error 分类统计
+- [ ] **结构化日志**：JSON Lines 输出到 stdout，兼容 Fluentd / Logstash / ELK
+- [ ] **Chargeback 报告**：按 project 精细分摊共享网关成本，支持 CSV 导出
+- [ ] **成本预测**：基于历史趋势预测下月消耗，邮件/Webhook 周报
+
+---
+
+### 🚧 v1.7.0 — 安全加固（Security Hardening）
+
+**目标：达到金融 / 医疗场景的安全基线**
+
+- [ ] **TOTP / MFA**：superadmin 账号强制二次验证
+- [ ] **Presidio / ML PII 检测**：替换正则，支持上下文感知 NER，降低漏检率
+- [ ] **IP 白名单 & 速率限制细化**：per-IP / per-API-Key 独立限流，IP 黑名单
+- [ ] **API Key HMAC 签名**：防止 Key 被截获后直接复用
+- [ ] **审计 Webhook**：高危操作（删除用户、修改安全策略）实时推送审计系统
+- [ ] **敏感字段加密存储**：Provider API Key 落库加密（AES-256）
+
+---
+
+### 🚧 v1.8.0 — 路由智能化（Smart Routing+）
+
+**目标：路由决策精度媲美 OpenRouter，且可自学习**
+
+- [ ] **ML 工作负载分类器**：Logistic Regression 替换规则分类，每月从 RequestLog 重训
+- [ ] **语义缓存**：基于 embedding 相似度命中缓存，命中率预计提升 30%+
+- [ ] **多目标路由优化**：同时权衡 latency / cost / quality，Pareto 最优解
+- [ ] **金丝雀流量动态调整**：A/B 实验流量比例可实时调整（当前固定 10%）
+- [ ] **用户反馈 UI**：Chat 页面回复气泡内嵌评分（👍/👎），打通反馈闭环
+- [ ] **模型能力自动发现**：调用 Provider `/models` 接口自动同步支持的模型列表
+
+---
+
+### 🚧 v1.9.0 — 生态 & 开发者体验（Ecosystem）
+
+**目标：降低接入门槛，扩大 Provider 覆盖**
+
+- [ ] **预置 Provider 适配器**：Anthropic / Gemini / Cohere / Mistral / Together 原生 SDK 对接
+- [ ] **本地模型支持**：Ollama / vLLM / LM Studio 统一接入，内网部署全流程打通
+- [ ] **Python SDK**：`pip install goku-router`，支持 OpenAI 兼容接口
+- [ ] **Node.js SDK**：`npm install goku-router`
+- [ ] **Swagger / Redoc 文档站**：`/docs` 在线 API 文档，自动从代码生成
+- [ ] **CLI 工具**：`goku chat "hello"` / `goku providers list` 命令行快速管理
+- [ ] **Webhook 回调**：请求完成后推送结构化事件到业务系统
+
+---
+
+### 🚧 v2.0.0 — 高可用 & 多实例（HA & Scale）
+
+**目标：支持水平扩展，达到 99.9% 可用性 SLA**
+
+- [ ] **Redis 集群模式**：会话共享、限流计数器、缓存跨实例同步
+- [ ] **多实例无状态部署**：熔断器状态、质量评分持久化到 Redis / DB
+- [ ] **Kubernetes Helm Chart**：生产级 k8s 部署方案
+- [ ] **MySQL / PostgreSQL Alembic 迁移**：完全替换 ensure_schema() 手工迁移
+- [ ] **数据库读写分离**：日志写入走 replica，路由决策走 primary
+- [ ] **蓝绿发布支持**：配置热重载，不停机更新路由规则
+
+---
+
+## 版本进度总览
 
 ```
-v1.0.0  Foundation Fix         ████████████████████  ✅ DONE
-v1.0.1  Core Routing           ████████████████░░░░  ✅ DONE (85%)
-v1.1.0  Security               ██████████████░░░░░░  ✅ DONE (75%)
-v1.2.0  Observability/Billing  ██████████████████░░  ✅ DONE (90%)
-v1.3.0  Self-Evolution         ████████████████░░░░  ✅ DONE (80%)
-v1.4.0  Auth & User Mgmt      ████████████████████  ✅ DONE (100%)
-                             ─────────────────────
-Remaining                    ~1–2 weeks (ML classifier, S3 export, Presidio)
+v1.0.0  基础能力修复       ████████████████████  ✅ DONE
+v1.0.1  核心路由           ████████████████░░░░  ✅ DONE (85%)
+v1.1.0  安全管控           ██████████████░░░░░░  ✅ DONE (75%)
+v1.2.0  可观测性 & 计费    ██████████████████░░  ✅ DONE (90%)
+v1.3.0  自演化路由         ████████████████░░░░  ✅ DONE (80%)
+v1.4.0  登录 & 用户管理    ████████████████████  ✅ DONE
+v1.4.1  管理台 UI 完善     ████████████████████  ✅ DONE
+──────────────────────────────────────────────────
+v1.5.0  可靠性 & 告警      ░░░░░░░░░░░░░░░░░░░░  📋 PLANNED
+v1.6.0  可观测性升级       ░░░░░░░░░░░░░░░░░░░░  📋 PLANNED
+v1.7.0  安全加固           ░░░░░░░░░░░░░░░░░░░░  📋 PLANNED
+v1.8.0  路由智能化+        ░░░░░░░░░░░░░░░░░░░░  📋 PLANNED
+v1.9.0  生态 & 开发者体验  ░░░░░░░░░░░░░░░░░░░░  📋 PLANNED
+v2.0.0  高可用 & 多实例    ░░░░░░░░░░░░░░░░░░░░  📋 PLANNED
 ```
 
 ---
 
-## ✅ Phase 5 — Auth & User Management `v1.4.0` — **SHIPPED**
-
-**Goal:** Secure the admin console with proper login, JWT sessions, and role-based access control.
-
-### Completed
-
-- ✅ **`AdminUser` model** — username, password_hash (bcrypt), role (`superadmin` | `admin` | `viewer`), email, is_active, last_login_at
-- ✅ **`services/auth.py`** — bcrypt password hashing, JWT access token (30 min), JWT refresh token (7 days), HS256 signed
-- ✅ **`POST /auth/login`** — username + password → access + refresh tokens
-- ✅ **`POST /auth/refresh`** — exchange refresh token for new token pair
-- ✅ **`POST /auth/logout`** — stateless (client discards tokens)
-- ✅ **Admin JWT middleware** — all `/admin/*` routes now require `Authorization: Bearer <token>`; returns 401 with clear message if missing/expired
-- ✅ **Role-based access control** — `superadmin`: full access incl. user management; `admin`: all admin APIs except user management; `viewer`: read-only
-- ✅ **`GET /admin/users/me`** — current user profile
-- ✅ **`PUT /admin/users/me/password`** — self-service password change
-- ✅ **`GET /admin/users`** — list all users (admin+)
-- ✅ **`POST /admin/users`** — create user (superadmin only)
-- ✅ **`PUT /admin/users/{id}`** — update role/email/active status (superadmin only)
-- ✅ **`DELETE /admin/users/{id}`** — delete user (superadmin only; cannot self-delete)
-- ✅ **Auto-seed superadmin** — on first startup, creates superadmin from `ADMIN_USER` / `ADMIN_PASSWORD` env vars (default: `admin` / `admin123`)
-- ✅ **Config settings** — `JWT_SECRET_KEY`, `JWT_EXPIRE_MINUTES`, `ADMIN_USER`, `ADMIN_PASSWORD` all configurable via `.env`
-
-### Remaining (v1.5.0)
-- ⬜ Token blacklist (Redis-backed) for true server-side logout
-- ⬜ Audit webhook for high-severity security events
-- ⬜ TOTP/MFA for superadmin accounts
-
----
-
-## What Does NOT Need Building
-
-The following are already well-implemented and should not be re-architected:
-
-- **Route scoring formula** — workload-class weight vectors are solid; just needs real data feeding them
-- **Policy hierarchy** (org → workspace → project → key) — data model is correct
-- **A/B experiment bucketing** — deterministic hash split is correct; needs lifecycle automation only
-- **Audit log writes** — comprehensive coverage across all admin actions; needs UI and export
-- **Prompt cache data model** — `PromptCacheEntry` is correct; needs semantic matching upgrade
-- **Workload classification logic** — rule-based classifier works for now; ML upgrade is v1.4.0
-- **Route decision trace** — `route_trace_json` format is excellent; keep it
-
----
-
-*Goku-Router Roadmap — v1.4.0 | © Chuck 2026*
+*Goku-Router Roadmap — v1.4.1 | © Chuck 2026*
