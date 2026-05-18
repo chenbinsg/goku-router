@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Modal, Form, Input, message, Card } from 'antd';
+import { Table, Button, Modal, Form, Input, Select, message, Card, Space, Popconfirm } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { addModel, getModels, getProviders, updateModel } from '../api';
 import { Model, Provider } from '../types';
 import { useI18n } from '../i18n';
@@ -69,18 +70,22 @@ const ModelsAdminPage: React.FC = () => {
   ];
 
   const handleOk = async (values: Model) => {
-    if (editingModel?.id) {
-      const updated = await updateModel({ ...editingModel, ...values });
-      setModels((current) => current.map((item) => (item.id === updated.id ? updated : item)));
-      message.success(t('modelsAdmin.updated'));
-    } else {
-      const created = await addModel(values);
-      setModels((current) => [...current, created]);
-      message.success(t('modelsAdmin.added'));
+    try {
+      if (editingModel?.id) {
+        const updated = await updateModel({ ...editingModel, ...values });
+        setModels((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+        message.success(t('modelsAdmin.updated'));
+      } else {
+        const created = await addModel(values);
+        setModels((current) => [...current, created]);
+        message.success(t('modelsAdmin.added'));
+      }
+      setIsModalVisible(false);
+      setEditingModel(null);
+      form.resetFields();
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail ?? '操作失败');
     }
-    setIsModalVisible(false);
-    setEditingModel(null);
-    form.resetFields();
   };
 
   return (
@@ -125,11 +130,17 @@ const ModelsAdminPage: React.FC = () => {
             <Input />
           </Form.Item>
           <Form.Item
-            label={t('modelsAdmin.providerId')}
+            label="Provider"
             name="providerId"
             rules={[{ required: true, message: t('modelsAdmin.providerIdRequired') }]}
           >
-            <Input placeholder={providers.map((provider) => `${provider.id}:${provider.providerName}`).join(', ')} />
+            <Select placeholder="选择 Provider" showSearch optionFilterProp="label">
+              {providers.map((p) => (
+                <Select.Option key={p.id} value={p.id} label={p.providerName}>
+                  {p.providerName}
+                </Select.Option>
+              ))}
+            </Select>
           </Form.Item>
           <Form.Item
             label={t('modelsAdmin.providerModelName')}
