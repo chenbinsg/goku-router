@@ -345,6 +345,33 @@ def create_embedding(
 ):
     return crud.create_embedding(db=db, request=request)
 
+
+@app.post("/v1/images/generations", response_model=schemas.ImageGenerationResponse)
+def create_image_generation(
+    request: schemas.ImageGenerationRequest,
+    db: Session = Depends(get_db),
+    api_key_context: dict = Depends(require_api_key),
+):
+    """
+    Proxy image generation requests to the appropriate provider via BYOK keys.
+    Supports gpt-image-2, dall-e-3, and any model registered in the BYOK table.
+    """
+    try:
+        crud._check_quota(db=db, api_key_label=api_key_context.get("label"))
+    except ValueError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    try:
+        return crud.create_image_generation(
+            db=db,
+            request=request,
+            api_key_label=api_key_context.get("label"),
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if detail.startswith("NO_BYOK_KEY"):
+            raise HTTPException(status_code=503, detail=detail) from exc
+        raise HTTPException(status_code=503, detail=detail) from exc
+
 @app.get("/v1/models", response_model=schemas.ModelListResponse)
 def list_models(
     db: Session = Depends(get_db),

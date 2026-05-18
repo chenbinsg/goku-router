@@ -5190,3 +5190,113 @@ def get_byok_key_secret(db: Session, key_id: int) -> str | None:
         models.ByokKey.is_active == True,
     ).first()
     return key.api_key_encrypted if key else None
+
+
+# ── Image model → provider resolution ────────────────────────────────────────
+
+_IMAGE_MODEL_PROVIDER: dict[str, str] = {
+    "gpt-image-2":        "openai",
+    "gpt-image-1":        "openai",
+    "gpt-image-1-mini":   "openai",
+    "dall-e-3":           "openai",
+    "dall-e-2":           "openai",
+    # Add other providers here as needed, e.g.:
+    # "stabilityai/stable-diffusion-3": "stabilityai",
+}
+
+_DALLE3_MODELS = {"dall-e-3", "dall-e-2"}
+
+
+def _resolve_image_provider(model: str) -> str:
+    """Map model name to provider name; default to 'openai'."""
+    for prefix, provider in _IMAGE_MODEL_PROVIDER.items():
+        if model == prefix or model.startswith(prefix):
+            return provider
+    return "openai"
+
+
+def _get_byok_key_for_provider(db: Session, provider: str) -> tuple[str | None, str | None]:
+    """Return (api_key, base_url) from BYOK table for the given provider."""
+    key = db.query(models.ByokKey).filter(
+        models.ByokKey.provider == provider,
+        models.ByokKey.is_active == True,
+    ).order_by(models.ByokKey.id.desc()).first()
+    if key is None:
+        return None, None
+    # base_url stored in org_label field as a convention if set, otherwise None
+    base_url = key.org_label if key.org_label and key.org_label.startswith("http") else None
+    return key.api_key_encrypted, base_url
+
+
+def create_image_generation(
+    db: Session,
+    request: schemas.ImageGenerationRequest,
+    api_key_label: str | None = None,
+) -> schemas.ImageGenerationResponse:
+    """
+    Proxy an image generation request to the appropriate provider.
+
+    Provider resolution order:
+    1. Model name → provider mapping (_IMAGE_MODEL_PROVIDER)
+    2. Look up active BYOK key for that provider
+    3. Call provider's image generation API and return OpenAI-compatible response
+    """
+    import time as _time
+    from openai import OpenAI
+
+    provider_name = _resolve_image_provider(request.model)
+    api_key, base_url = _get_byok_key_for_provider(db, provider_name)
+
+    if not api_key:
+        raise ValueError(
+            f"NO_BYOK_KEY: No active BYOK key found for provider '{provider_name}'. "
+            f"Add one via POST /admin/byok with provider='{provider_name}'."
+        )
+
+    client_kwargs: dict = {"api_key": api_key}
+    if base_url:
+        client_kwargs["base_url"] = base_url
+    client = OpenAI(**client_kwargs)
+
+    is_dalle = request.model in _DALLE3_MODELS
+
+    generate_kwargs: dict = {
+        "model":   request.model,
+        "prompt":  request.prompt,
+        "n":       request.n or 1,
+    }
+    if request.size:
+        generate_kwargs["size"] = request.size
+    if request.quality:
+        generate_kwargs["quality"] = request.quality
+    if is_dalle and request.style:
+        generate_kwargs["style"] = request.style
+    if request.response_format:
+        generate_kwargs["response_format"] = request.response_format
+
+    resp = client.images.generate(**generate_kwargs)
+
+    images = [
+        schemas.ImageData(
+            url=getattr(img, "url", None),
+            b64_json=getattr(img, "b64_json", None),
+            revised_prompt=getattr(img, "revised_prompt", None),
+        )
+        for img in resp.data
+    ]
+
+    # Update BYOK last_used_at
+    key_row = db.query(models.ByokKey).filter(
+        models.ByokKey.provider == provider_name,
+        models.ByokKey.is_active == True,
+    ).order_by(models.ByokKey.id.desc()).first()
+    if key_row:
+        key_row.last_used_at = datetime.now(UTC)
+        db.commit()
+
+    return schemas.ImageGenerationResponse(
+        created=int(_time.time()),
+        data=images,
+        model=request.model,
+        provider=provider_name,
+    )

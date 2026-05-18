@@ -98,6 +98,33 @@ class EmbeddingResponse(BaseModel):
 class ModelListResponse(BaseModel):
     models: List[str]
 
+
+# ── Image Generation ──────────────────────────────────────────────────────────
+
+class ImageGenerationRequest(BaseModel):
+    model: str = "gpt-image-2"
+    prompt: str
+    n: Optional[int] = 1
+    size: Optional[str] = "1024x1024"
+    quality: Optional[str] = "auto"
+    style: Optional[str] = None
+    response_format: Optional[str] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ImageData(BaseModel):
+    url: Optional[str] = None
+    b64_json: Optional[str] = None
+    revised_prompt: Optional[str] = None
+
+
+class ImageGenerationResponse(BaseModel):
+    created: int
+    data: List[ImageData]
+    model: Optional[str] = None
+    provider: Optional[str] = None
+
 class BillingExportResponse(BaseModel):
     csv_url: str
 
