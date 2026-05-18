@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     # v1.4.0: Admin console auth
     jwt_secret_key: str = "change-me-in-production-use-a-long-random-string"
-    jwt_expire_minutes: int = 480  # 8 hours
+    jwt_expire_minutes: int = 1440  # 24 hours
     admin_user: str = "admin"
     admin_password: str = "admin123"   # override via ADMIN_PASSWORD env var
 
