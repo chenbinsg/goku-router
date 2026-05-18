@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from . import models, schemas, crud
-from .config import get_allowed_router_api_keys
 from .db import SessionLocal, engine
 from .services.circuit_breaker import circuit_breakers
 from .services.scheduler import start_scheduler, stop_scheduler
@@ -117,16 +116,12 @@ def require_api_key(
     x_api_key: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ):
-    allowed_keys = get_allowed_router_api_keys()
     bearer_token = None
     if authorization and authorization.lower().startswith("bearer "):
         bearer_token = authorization[7:].strip()
 
     candidate_keys = [value for value in [x_api_key, bearer_token] if value]
     for candidate in candidate_keys:
-        if candidate in allowed_keys:
-            suffix = candidate[-4:] if len(candidate) >= 4 else candidate
-            return {"label": f"key_...{suffix}", "organization_id": None, "project_id": None}
         db_key_context = crud.find_router_api_key_context(db=db, candidate_key=candidate)
         if db_key_context:
             return db_key_context
@@ -351,6 +346,21 @@ def list_models(
 ):
     """Public endpoint — no API key required to browse the model catalog."""
     return crud.get_models(db=db)
+
+
+@app.get("/v1/providers", response_model=list[schemas.ProviderSummary])
+def list_provider_summaries(db: Session = Depends(get_db)):
+    """Public endpoint — returns provider name/status/capabilities only (no secrets)."""
+    return [
+        schemas.ProviderSummary(
+            id=row.id,
+            name=row.name,
+            status=row.status,
+            health_status=row.health_status,
+            capabilities=[tag.strip() for tag in (row.capability_tags or "").split(",") if tag.strip()],
+        )
+        for row in db.query(models.Provider).order_by(models.Provider.priority.asc()).all()
+    ]
 
 @app.get("/admin/billing/export")
 def export_billing(db: Session = Depends(get_db)):

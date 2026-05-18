@@ -83,6 +83,8 @@ class Provider(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), unique=True, index=True, nullable=False)
     adapter_type = Column(String(64), nullable=False, default="mock")
+    base_url = Column(String(1024), nullable=True)
+    api_key = Column(String(512), nullable=True)
     host_type = Column(String(32), nullable=False, default="external")   # v0.4: "internal" | "external"
     region = Column(String(64), nullable=True)                           # v0.4: e.g. "jp-east-1"
     status = Column(String(32), nullable=False, default="active")
@@ -128,6 +130,11 @@ class ModelCatalog(Base):
     provider_id = Column(Integer, ForeignKey('providers.id'), nullable=False)
     provider_model_name = Column(String(255), nullable=False)
     status = Column(String(32), nullable=False, default="active")
+    input_cost_per_1k = Column(Float, nullable=True)
+    output_cost_per_1k = Column(Float, nullable=True)
+    supported_parameters = Column(String(512), nullable=True)
+    max_input_tokens = Column(Integer, nullable=True)
+    max_output_tokens = Column(Integer, nullable=True)
 
     provider = relationship("Provider", back_populates="models")
 

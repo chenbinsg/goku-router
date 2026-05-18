@@ -107,10 +107,21 @@ class DownloadArtifactResponse(BaseModel):
     download_url: str
 
 
+class ProviderSummary(BaseModel):
+    """Public-safe provider summary (no secrets, no internal scoring fields)."""
+    id: int
+    name: str
+    status: str
+    health_status: str
+    capabilities: List[str] = []
+
+
 class ProviderItem(BaseModel):
     id: int
     name: str
     adapter_type: str
+    base_url: Optional[str] = None
+    has_api_key: bool = False
     status: str
     health_status: str
     priority: int
@@ -130,6 +141,8 @@ class ProviderItem(BaseModel):
 class ProviderCreate(BaseModel):
     name: str
     adapter_type: str = "mock"
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
     status: str = "active"
     health_status: str = "healthy"
     priority: int = 100
@@ -159,6 +172,11 @@ class ModelCatalogItem(BaseModel):
     provider_name: str
     provider_model_name: str
     status: str
+    input_cost_per_1k: float
+    output_cost_per_1k: float
+    supported_parameters: List[str]
+    max_input_tokens: int
+    max_output_tokens: int
 
 
 class ModelCatalogCreate(BaseModel):
@@ -166,6 +184,11 @@ class ModelCatalogCreate(BaseModel):
     provider_id: int
     provider_model_name: str
     status: str = "active"
+    input_cost_per_1k: Optional[float] = None
+    output_cost_per_1k: Optional[float] = None
+    supported_parameters: Optional[List[str]] = None
+    max_input_tokens: Optional[int] = None
+    max_output_tokens: Optional[int] = None
 
 
 class RouteRuleItem(BaseModel):

@@ -138,6 +138,19 @@ export const listModels = async (): Promise<ModelListResponse> => {
   return response.data;
 };
 
+export interface ProviderSummary {
+  id: number;
+  name: string;
+  status: string;
+  health_status: string;
+  capabilities: string[];
+}
+
+export const listProviderSummaries = async (): Promise<ProviderSummary[]> => {
+  const response = await client.get<ProviderSummary[]>('/v1/providers');
+  return response.data;
+};
+
 export const exportBilling = async (): Promise<BillingExportResponse> => {
   const response = await client.get<BillingExportResponse>('/admin/billing/export');
   return response.data;

@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Modal, Form, Input, message, Card } from 'antd';
-import { getProviders, getRouteRules, saveRouteRule } from '../api';
-import { Provider, RouteRule } from '../types';
+import { Table, Button, Modal, Form, Input, Select, message, Card } from 'antd';
+import { getModels, getProviders, getRouteRules, saveRouteRule } from '../api';
+import { Model, Provider, RouteRule } from '../types';
 import { useI18n } from '../i18n';
 
 const RoutingAdminPage: React.FC = () => {
   const { t } = useI18n();
   const [routeRules, setRouteRules] = useState<RouteRule[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(false);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [editingRoute, setEditingRoute] = useState<RouteRule | null>(null);
@@ -17,9 +18,14 @@ const RoutingAdminPage: React.FC = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [routes, providerList] = await Promise.all([getRouteRules(), getProviders()]);
+        const [routes, providerList, modelList] = await Promise.all([
+          getRouteRules(),
+          getProviders(),
+          getModels(),
+        ]);
         setRouteRules(routes);
         setProviders(providerList);
+        setModels(modelList);
       } catch (error) {
         message.error(t('routing.loadFailed'));
       } finally {
@@ -117,17 +123,40 @@ const RoutingAdminPage: React.FC = () => {
             name="modelId"
             rules={[{ required: true, message: t('routing.modelRequired') }]}
           >
-            <Input />
+            <Select
+              placeholder={t('routing.modelPlaceholder')}
+              showSearch
+              optionFilterProp="label"
+              disabled={!!editingRoute}
+              options={Array.from(new Set(models.map((m) => m.modelId)))
+                .sort()
+                .map((modelId) => ({ value: modelId, label: modelId }))}
+            />
           </Form.Item>
           <Form.Item
             label={t('routing.preferredProviderId')}
             name="preferredProviderId"
             rules={[{ required: true, message: t('routing.providerRequired') }]}
           >
-            <Input placeholder={providers.map((provider) => `${provider.id}:${provider.providerName}`).join(', ')} />
+            <Select
+              placeholder={t('routing.providerPlaceholder')}
+              showSearch
+              optionFilterProp="label"
+              options={providers
+                .filter((p) => p.id !== undefined)
+                .map((p) => ({ value: p.id, label: `${p.providerName} (#${p.id})` }))}
+            />
           </Form.Item>
           <Form.Item label={t('routing.backupProviderId')} name="backupProviderId">
-            <Input />
+            <Select
+              placeholder={t('routing.backupPlaceholder')}
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              options={providers
+                .filter((p) => p.id !== undefined)
+                .map((p) => ({ value: p.id, label: `${p.providerName} (#${p.id})` }))}
+            />
           </Form.Item>
           <Form.Item label={t('routing.timeoutMs')} name="timeoutMs">
             <Input />

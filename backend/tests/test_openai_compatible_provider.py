@@ -18,6 +18,8 @@ def test_openai_compatible_provider_executes_via_httpx(monkeypatch):
     provider = Provider(
         name="external_router",
         adapter_type="openai_compatible",
+        base_url="https://example.test/v1",
+        api_key="secret-key",
         status="active",
         health_status="healthy",
         priority=10,
@@ -55,11 +57,6 @@ def test_openai_compatible_provider_executes_via_httpx(monkeypatch):
             }
         )
 
-    monkeypatch.setenv(
-        "PROVIDER_EXTERNAL_ROUTER_BASE_URL",
-        "https://example.test/v1",
-    )
-    monkeypatch.setenv("PROVIDER_EXTERNAL_ROUTER_API_KEY", "secret-key")
     monkeypatch.setattr(providers.httpx, "post", fake_post)
 
     result = providers.execute_chat_completion(provider, model, request)
@@ -80,6 +77,8 @@ def test_openai_compatible_provider_marks_valid_json_object_as_not_healed(monkey
     provider = Provider(
         name="external_router",
         adapter_type="openai_compatible",
+        base_url="https://example.test/v1",
+        api_key="secret-key",
         status="active",
         health_status="healthy",
         priority=10,
@@ -109,11 +108,6 @@ def test_openai_compatible_provider_marks_valid_json_object_as_not_healed(monkey
             }
         )
 
-    monkeypatch.setenv(
-        "PROVIDER_EXTERNAL_ROUTER_BASE_URL",
-        "https://example.test/v1",
-    )
-    monkeypatch.setenv("PROVIDER_EXTERNAL_ROUTER_API_KEY", "secret-key")
     monkeypatch.setattr(providers.httpx, "post", fake_post)
 
     result = providers.execute_chat_completion(provider, model, request)

@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { Alert, Button, Card, Checkbox, Descriptions, Form, Input, InputNumber, Space, Typography, message } from 'antd';
-import { createChatCompletion, createChatCompletionStream } from '../api';
+import React, { useEffect, useState } from 'react';
+import { Alert, Button, Card, Checkbox, Descriptions, Form, Input, InputNumber, Select, Space, Typography, message } from 'antd';
+import { createChatCompletion, createChatCompletionStream, listModels, listProviderSummaries } from '../api';
 import { ChatCompletionResponse } from '../types';
 import { useI18n } from '../i18n';
 
@@ -11,10 +11,10 @@ type ChatCompletionFormValues = {
   temperature?: number;
   topP?: number;
   maxTokens?: number;
-  preferredProviders?: string;
+  preferredProviders?: string[];
   providerSort?: string;
   maxPricePer1k?: number;
-  requiredCapabilities?: string;
+  requiredCapabilities?: string[];
   requireParameters?: boolean;
   zdr?: boolean;
   dataCollection?: string;
@@ -37,6 +37,25 @@ const ChatCompletionsPage: React.FC = () => {
   const { t } = useI18n();
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ChatCompletionResponse | null>(null);
+  const [providers, setProviders] = useState<{ name: string; capabilities: string[] }[]>([]);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+
+  useEffect(() => {
+    listProviderSummaries()
+      .then((rows) => setProviders(rows.map((row) => ({ name: row.name, capabilities: row.capabilities }))))
+      .catch((err: unknown) => {
+        console.error('[ChatCompletions] failed to load providers', err);
+      });
+    listModels()
+      .then((res) => setAvailableModels(res.models))
+      .catch((err: unknown) => {
+        console.error('[ChatCompletions] failed to load models', err);
+      });
+  }, []);
+
+  const availableCapabilities = Array.from(
+    new Set(providers.flatMap((provider) => provider.capabilities)),
+  ).sort();
 
   const onFinish = async (values: ChatCompletionFormValues) => {
     setLoading(true);
@@ -52,28 +71,25 @@ const ChatCompletionsPage: React.FC = () => {
         temperature: values.temperature,
         topP: values.topP,
         maxTokens: values.maxTokens,
-        provider: values.preferredProviders
+        provider: values.preferredProviders && values.preferredProviders.length > 0
           ? {
-              order: values.preferredProviders
-                .split(',')
-                .map((item) => item.trim())
-                .filter(Boolean),
+              order: values.preferredProviders,
               sort: values.providerSort,
               maxPricePer1k: values.maxPricePer1k,
-              requireCapabilities: values.requiredCapabilities
-                ? values.requiredCapabilities.split(',').map((item) => item.trim()).filter(Boolean)
+              requireCapabilities: values.requiredCapabilities && values.requiredCapabilities.length > 0
+                ? values.requiredCapabilities
                 : undefined,
               requireParameters: values.requireParameters,
               zdr: values.zdr,
               dataCollection: values.dataCollection,
               stickyKey: values.stickyKey,
             }
-          : values.providerSort || values.maxPricePer1k || values.requiredCapabilities || values.requireParameters || values.zdr || values.dataCollection || values.stickyKey
+          : values.providerSort || values.maxPricePer1k || (values.requiredCapabilities && values.requiredCapabilities.length > 0) || values.requireParameters || values.zdr || values.dataCollection || values.stickyKey
             ? {
                 sort: values.providerSort,
                 maxPricePer1k: values.maxPricePer1k,
-                requireCapabilities: values.requiredCapabilities
-                  ? values.requiredCapabilities.split(',').map((item) => item.trim()).filter(Boolean)
+                requireCapabilities: values.requiredCapabilities && values.requiredCapabilities.length > 0
+                  ? values.requiredCapabilities
                   : undefined,
                 requireParameters: values.requireParameters,
                 zdr: values.zdr,
@@ -198,10 +214,15 @@ const ChatCompletionsPage: React.FC = () => {
         <Form.Item
           label={t('chat.model')}
           name="model"
-          initialValue="gpt-4o-mini"
           rules={[{ required: true, message: t('chat.modelRequired') }]}
         >
-          <Input />
+          <Select
+            placeholder={t('chat.modelPlaceholder')}
+            showSearch
+            optionFilterProp="label"
+            notFoundContent={availableModels.length === 0 ? t('chat.modelEmpty') : undefined}
+            options={availableModels.map((m) => ({ value: m, label: m }))}
+          />
         </Form.Item>
         <Form.Item
           label={t('chat.messages')}
@@ -224,7 +245,17 @@ const ChatCompletionsPage: React.FC = () => {
           <InputNumber min={1} max={8192} style={{ width: '100%' }} />
         </Form.Item>
         <Form.Item label={t('chat.providerOrder')} name="preferredProviders">
-          <Input placeholder="provider_primary,provider_backup" />
+          <Select
+            mode="multiple"
+            allowClear
+            placeholder={t('chat.providerOrderPlaceholder')}
+            showSearch
+            optionFilterProp="label"
+            options={providers.map((provider) => ({
+              value: provider.name,
+              label: provider.name,
+            }))}
+          />
         </Form.Item>
         <Form.Item label="Provider Sort" name="providerSort" initialValue="balanced">
           <Input placeholder="balanced / price / latency / priority" />
@@ -233,7 +264,14 @@ const ChatCompletionsPage: React.FC = () => {
           <InputNumber min={0} step={0.1} style={{ width: '100%' }} />
         </Form.Item>
         <Form.Item label="Required Capabilities" name="requiredCapabilities">
-          <Input placeholder="tool_calling,structured_output" />
+          <Select
+            mode="multiple"
+            allowClear
+            placeholder="Select capabilities providers must support"
+            showSearch
+            optionFilterProp="label"
+            options={availableCapabilities.map((tag) => ({ value: tag, label: tag }))}
+          />
         </Form.Item>
         <Form.Item name="requireParameters" valuePropName="checked">
           <Checkbox>{t('chat.requireParameters')}</Checkbox>
@@ -242,7 +280,14 @@ const ChatCompletionsPage: React.FC = () => {
           <Checkbox>{t('chat.zdr')}</Checkbox>
         </Form.Item>
         <Form.Item label={t('chat.dataCollection')} name="dataCollection">
-          <Input placeholder="allow / deny" />
+          <Select
+            allowClear
+            placeholder={t('chat.dataCollectionPlaceholder')}
+            options={[
+              { value: 'allow', label: t('chat.dataCollectionAllow') },
+              { value: 'deny', label: t('chat.dataCollectionDeny') },
+            ]}
+          />
         </Form.Item>
         <Form.Item label={t('chat.stickyKey')} name="stickyKey">
           <Input placeholder="conversation-001" />

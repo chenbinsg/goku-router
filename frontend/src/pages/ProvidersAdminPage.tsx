@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Alert, Button, Card, Checkbox, Descriptions, Form, Input,
+  Button, Card, Checkbox, Descriptions, Form, Input,
   Modal, Popconfirm, Space, Switch, Table, Tag, Typography, message,
 } from 'antd';
 import { CheckCircleOutlined, CloseCircleOutlined, DeleteOutlined, ExperimentOutlined, PlusOutlined } from '@ant-design/icons';
@@ -8,9 +8,6 @@ import { CheckCircleOutlined, CloseCircleOutlined, DeleteOutlined, ExperimentOut
 import { addProvider, deleteProvider, getProviders, testProviderConnection, updateProvider } from '../api';
 import { Provider, ProviderConnectionTestResult } from '../types';
 import { useI18n } from '../i18n';
-
-const normalizeProviderEnvKey = (providerName: string) =>
-  providerName.toUpperCase().replace(/[^A-Z0-9]/g, '_');
 
 const ProvidersAdminPage: React.FC = () => {
   const { t } = useI18n();
@@ -22,7 +19,6 @@ const ProvidersAdminPage: React.FC = () => {
   const [isTestModalVisible, setIsTestModalVisible] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
-  const [draftProviderName, setDraftProviderName] = useState('external_router');
   const [testResult, setTestResult] = useState<ProviderConnectionTestResult | null>(null);
   const [testing, setTesting] = useState(false);
   const [providerForm] = Form.useForm<Provider>();
@@ -83,8 +79,10 @@ const ProvidersAdminPage: React.FC = () => {
       setIsModalVisible(false);
       setEditingProvider(null);
       providerForm.resetFields();
-    } catch {
-      message.error(t('providers.addFailed'));
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail ?? err?.message ?? 'unknown error';
+      message.error(`${t('providers.addFailed')}: ${detail}`);
+      console.error('[ProvidersAdmin] save failed', err?.response?.status, err?.response?.data, err);
     }
   };
 
@@ -105,9 +103,10 @@ const ProvidersAdminPage: React.FC = () => {
       });
       setTestResult(result);
       message.success(t('providers.connectionSucceeded'));
-    } catch {
+    } catch (err: any) {
       setTestResult(null);
-      message.error(t('providers.connectionFailed'));
+      const detail = err?.response?.data?.detail ?? err?.message ?? 'unknown error';
+      message.error(`${t('providers.connectionFailed')}: ${detail}`);
     } finally {
       setTesting(false);
     }
@@ -180,8 +179,7 @@ const ProvidersAdminPage: React.FC = () => {
               type="link"
               onClick={() => {
                 setEditingProvider(record);
-                setDraftProviderName(record.providerName);
-                providerForm.setFieldsValue(record);
+                providerForm.setFieldsValue({ ...record, apiKey: undefined });
                 setIsModalVisible(true);
               }}
             >
@@ -217,8 +215,6 @@ const ProvidersAdminPage: React.FC = () => {
     },
   ];
 
-  const normalizedDraftProviderName = normalizeProviderEnvKey(draftProviderName);
-
   return (
     <Card
       title={t('providers.title')}
@@ -228,7 +224,6 @@ const ProvidersAdminPage: React.FC = () => {
           icon={<PlusOutlined />}
           onClick={() => {
             setEditingProvider(null);
-            setDraftProviderName('external_router');
             providerForm.resetFields();
             providerForm.setFieldsValue({
               providerName: 'external_router',
@@ -273,12 +268,9 @@ const ProvidersAdminPage: React.FC = () => {
           form={providerForm}
           layout="vertical"
           onFinish={handleSaveProvider}
-          onValuesChange={(changed) => {
-            if (typeof changed.providerName === 'string')
-              setDraftProviderName(changed.providerName || 'external_router');
-          }}
         >
           <Form.Item name="id" hidden><Input /></Form.Item>
+          <Form.Item name="hasApiKey" hidden><Input /></Form.Item>
 
           <Form.Item label={t('providers.name')} name="providerName"
             rules={[{ required: true, message: t('providers.nameRequired') }]}>
@@ -288,6 +280,18 @@ const ProvidersAdminPage: React.FC = () => {
           <Form.Item label={t('providers.adapterType')} name="adapterType"
             rules={[{ required: true, message: t('providers.adapterRequired') }]}>
             <Input placeholder="openai_compatible" />
+          </Form.Item>
+
+          <Form.Item label={t('providers.baseUrl')} name="baseUrl">
+            <Input placeholder="https://api.openai.com/v1" />
+          </Form.Item>
+
+          <Form.Item
+            label={t('providers.apiKey')}
+            name="apiKey"
+            extra={editingProvider?.hasApiKey ? t('providers.apiKeyKeepHint') : undefined}
+          >
+            <Input.Password placeholder={editingProvider?.hasApiKey ? '••••••••' : 'sk-...'} autoComplete="new-password" />
           </Form.Item>
 
           <Space style={{ width: '100%' }} size={12}>
@@ -346,17 +350,6 @@ const ProvidersAdminPage: React.FC = () => {
             <Input placeholder="temperature,top_p,max_tokens,stop,tools,tool_choice,response_format" />
           </Form.Item>
 
-          <Alert
-            type="info" showIcon
-            message={t('providers.envHintModal')}
-            description={
-              <Space direction="vertical" size={0}>
-                <Typography.Text code>{`PROVIDER_${normalizedDraftProviderName}_BASE_URL`}</Typography.Text>
-                <Typography.Text code>{`PROVIDER_${normalizedDraftProviderName}_API_KEY`}</Typography.Text>
-              </Space>
-            }
-            style={{ marginBottom: 16 }}
-          />
           <Form.Item>
             <Button type="primary" htmlType="submit">{t('common.submit')}</Button>
           </Form.Item>

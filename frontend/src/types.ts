@@ -180,6 +180,9 @@ export interface Provider {
   id?: number;
   providerName: string;
   adapterType?: string;
+  baseUrl?: string;
+  apiKey?: string;
+  hasApiKey?: boolean;
   status?: string;
   healthStatus?: string;
   priority?: number;

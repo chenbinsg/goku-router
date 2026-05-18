@@ -206,6 +206,8 @@ def ensure_schema(db: Session):
             ("healing_strategy", "ALTER TABLE request_logs ADD COLUMN healing_strategy VARCHAR(64)"),
         ],
         "providers": [
+            ("base_url", "ALTER TABLE providers ADD COLUMN base_url VARCHAR(1024)"),
+            ("api_key", "ALTER TABLE providers ADD COLUMN api_key VARCHAR(512)"),
             ("input_cost_per_1k", "ALTER TABLE providers ADD COLUMN input_cost_per_1k FLOAT DEFAULT 0.001"),
             ("output_cost_per_1k", "ALTER TABLE providers ADD COLUMN output_cost_per_1k FLOAT DEFAULT 0.002"),
             ("avg_latency_ms", "ALTER TABLE providers ADD COLUMN avg_latency_ms FLOAT DEFAULT 500"),
@@ -220,6 +222,13 @@ def ensure_schema(db: Session):
             ("host_type", "ALTER TABLE providers ADD COLUMN host_type VARCHAR(32) DEFAULT 'external'"),
             ("region", "ALTER TABLE providers ADD COLUMN region VARCHAR(64)"),
             ("circuit_breaker_state", "ALTER TABLE providers ADD COLUMN circuit_breaker_state VARCHAR(32) DEFAULT 'closed'"),
+        ],
+        "model_catalog": [
+            ("input_cost_per_1k", "ALTER TABLE model_catalog ADD COLUMN input_cost_per_1k FLOAT"),
+            ("output_cost_per_1k", "ALTER TABLE model_catalog ADD COLUMN output_cost_per_1k FLOAT"),
+            ("supported_parameters", "ALTER TABLE model_catalog ADD COLUMN supported_parameters VARCHAR(512)"),
+            ("max_input_tokens", "ALTER TABLE model_catalog ADD COLUMN max_input_tokens INTEGER"),
+            ("max_output_tokens", "ALTER TABLE model_catalog ADD COLUMN max_output_tokens INTEGER"),
         ],
         "router_api_keys": [
             ("organization_id", "ALTER TABLE router_api_keys ADD COLUMN organization_id INTEGER"),
@@ -297,6 +306,20 @@ def seed_demo_data(db: Session):
             backup.supported_parameters = "temperature,top_p,max_tokens,stop,response_format"
             backup.max_input_tokens = 2048
             backup.max_output_tokens = 1024
+        for mapping in db.query(models.ModelCatalog).all():
+            provider = db.query(models.Provider).filter(models.Provider.id == mapping.provider_id).first()
+            if provider is None:
+                continue
+            if mapping.input_cost_per_1k is None:
+                mapping.input_cost_per_1k = provider.input_cost_per_1k
+            if mapping.output_cost_per_1k is None:
+                mapping.output_cost_per_1k = provider.output_cost_per_1k
+            if not mapping.supported_parameters:
+                mapping.supported_parameters = provider.supported_parameters
+            if mapping.max_input_tokens is None:
+                mapping.max_input_tokens = provider.max_input_tokens
+            if mapping.max_output_tokens is None:
+                mapping.max_output_tokens = provider.max_output_tokens
         if db.query(models.GuardrailConfig).count() == 0:
             db.add(
                 models.GuardrailConfig(
@@ -345,6 +368,17 @@ def seed_demo_data(db: Session):
         )
         if project is None:
             db.add(models.Project(name="Demo Project", organization_id=organization.id))
+        demo_key = db.query(models.RouterApiKey).filter(models.RouterApiKey.name == "demo-router-key").first()
+        if demo_key is None:
+            db.add(
+                models.RouterApiKey(
+                    name="demo-router-key",
+                    key_hash=_hash_api_key("demo-router-key"),
+                    key_prefix="demo-route",
+                    status="active",
+                    request_count=0,
+                )
+            )
         db.commit()
         return
 
@@ -397,18 +431,33 @@ def seed_demo_data(db: Session):
                 provider_id=primary.id,
                 provider_model_name="mock-primary-model1",
                 status="active",
+                input_cost_per_1k=primary.input_cost_per_1k,
+                output_cost_per_1k=primary.output_cost_per_1k,
+                supported_parameters=primary.supported_parameters,
+                max_input_tokens=primary.max_input_tokens,
+                max_output_tokens=primary.max_output_tokens,
             ),
             models.ModelCatalog(
                 model_id="model1",
                 provider_id=backup.id,
                 provider_model_name="mock-backup-model1",
                 status="active",
+                input_cost_per_1k=backup.input_cost_per_1k,
+                output_cost_per_1k=backup.output_cost_per_1k,
+                supported_parameters=backup.supported_parameters,
+                max_input_tokens=backup.max_input_tokens,
+                max_output_tokens=backup.max_output_tokens,
             ),
             models.ModelCatalog(
                 model_id="model2",
                 provider_id=backup.id,
                 provider_model_name="mock-backup-model2",
                 status="active",
+                input_cost_per_1k=backup.input_cost_per_1k,
+                output_cost_per_1k=backup.output_cost_per_1k,
+                supported_parameters=backup.supported_parameters,
+                max_input_tokens=backup.max_input_tokens,
+                max_output_tokens=backup.max_output_tokens,
             ),
             models.RouteRule(
                 model_id="model1",
@@ -446,6 +495,13 @@ def seed_demo_data(db: Session):
                 blocked_words="password,secret,ssn",
                 max_prompt_chars=200000,
                 retention_mode="strict",
+            ),
+            models.RouterApiKey(
+                name="demo-router-key",
+                key_hash=_hash_api_key("demo-router-key"),
+                key_prefix="demo-route",
+                status="active",
+                request_count=0,
             ),
         ]
     )
@@ -1120,8 +1176,28 @@ def _provider_capabilities(provider: models.Provider) -> set[str]:
     return set(_csv_to_list(provider.capability_tags))
 
 
-def _provider_supported_parameters(provider: models.Provider) -> set[str]:
-    return set(_csv_to_list(provider.supported_parameters))
+def _effective_input_cost_per_1k(provider: models.Provider, mapping: models.ModelCatalog) -> float:
+    return float(mapping.input_cost_per_1k) if mapping.input_cost_per_1k is not None else float(provider.input_cost_per_1k)
+
+
+def _effective_output_cost_per_1k(provider: models.Provider, mapping: models.ModelCatalog) -> float:
+    return float(mapping.output_cost_per_1k) if mapping.output_cost_per_1k is not None else float(provider.output_cost_per_1k)
+
+
+def _effective_supported_parameters(provider: models.Provider, mapping: models.ModelCatalog) -> set[str]:
+    return set(_csv_to_list(mapping.supported_parameters or provider.supported_parameters))
+
+
+def _effective_max_input_tokens(provider: models.Provider, mapping: models.ModelCatalog) -> int:
+    return int(mapping.max_input_tokens) if mapping.max_input_tokens is not None else int(provider.max_input_tokens)
+
+
+def _effective_max_output_tokens(provider: models.Provider, mapping: models.ModelCatalog) -> int:
+    return int(mapping.max_output_tokens) if mapping.max_output_tokens is not None else int(provider.max_output_tokens)
+
+
+def _effective_total_price_per_1k(provider: models.Provider, mapping: models.ModelCatalog) -> float:
+    return _effective_input_cost_per_1k(provider, mapping) + _effective_output_cost_per_1k(provider, mapping)
 
 
 def _requested_parameter_names(request: schemas.ChatCompletionRequest) -> set[str]:
@@ -1150,10 +1226,11 @@ def _estimate_prompt_tokens(request: schemas.ChatCompletionRequest) -> int:
 
 def _provider_sort_key(
     provider: models.Provider,
+    mapping: models.ModelCatalog,
     request: schemas.ChatCompletionRequest,
 ):
     sort_mode = request.provider.sort if request.provider else "balanced"
-    total_price = provider.input_cost_per_1k + provider.output_cost_per_1k
+    total_price = _effective_total_price_per_1k(provider, mapping)
     if sort_mode == "price":
         return (total_price, provider.avg_latency_ms, provider.priority)
     if sort_mode == "latency":
@@ -1180,12 +1257,13 @@ def _get_provider_quality_score(db: Session | None, provider_name: str, workload
 
 def _provider_route_score(
     provider: models.Provider,
+    mapping: models.ModelCatalog,
     request: schemas.ChatCompletionRequest,
     workload_class: str,
     weights: dict[str, float] | None = None,
     db: Session | None = None,
 ) -> tuple[float, dict[str, float]]:
-    total_price = provider.input_cost_per_1k + provider.output_cost_per_1k
+    total_price = _effective_total_price_per_1k(provider, mapping)
     capabilities = _provider_capabilities(provider)
     active_weights = _normalize_weight_map(weights or _get_default_route_score_weights(workload_class))
 
@@ -1237,10 +1315,14 @@ def _build_candidate_trace(
     traces: list[dict[str, Any]] = []
     for provider, mapping in candidates:
         capabilities = _provider_capabilities(provider)
-        supported_parameters = _provider_supported_parameters(provider)
-        total_price = provider.input_cost_per_1k + provider.output_cost_per_1k
-        sort_key = _provider_sort_key(provider, request)
-        route_score, score_components = _provider_route_score(provider, request, workload_class, route_weights, db=db)
+        supported_parameters = _effective_supported_parameters(provider, mapping)
+        total_price = _effective_total_price_per_1k(provider, mapping)
+        max_input_tokens = _effective_max_input_tokens(provider, mapping)
+        max_output_tokens = _effective_max_output_tokens(provider, mapping)
+        input_cost_per_1k = _effective_input_cost_per_1k(provider, mapping)
+        output_cost_per_1k = _effective_output_cost_per_1k(provider, mapping)
+        sort_key = _provider_sort_key(provider, mapping, request)
+        route_score, score_components = _provider_route_score(provider, mapping, request, workload_class, route_weights, db=db)
         accepted = True
         reject_reason = None
         if not required_capabilities.issubset(capabilities):
@@ -1255,10 +1337,10 @@ def _build_candidate_trace(
         elif request.provider and request.provider.require_parameters and not requested_parameter_names.issubset(supported_parameters):
             accepted = False
             reject_reason = "missing_required_parameters"
-        elif estimated_prompt_tokens > provider.max_input_tokens:
+        elif estimated_prompt_tokens > max_input_tokens:
             accepted = False
             reject_reason = "prompt_tokens_above_provider_limit"
-        elif requested_output_tokens and requested_output_tokens > provider.max_output_tokens:
+        elif requested_output_tokens and requested_output_tokens > max_output_tokens:
             accepted = False
             reject_reason = "max_output_tokens_above_provider_limit"
         elif allowed_providers and provider.name not in allowed_providers:
@@ -1282,12 +1364,12 @@ def _build_candidate_trace(
                 "supported_parameters": sorted(supported_parameters),
                 "estimated_prompt_tokens": estimated_prompt_tokens,
                 "requested_output_tokens": requested_output_tokens,
-                "max_input_tokens": provider.max_input_tokens,
-                "max_output_tokens": provider.max_output_tokens,
+                "max_input_tokens": max_input_tokens,
+                "max_output_tokens": max_output_tokens,
                 "supports_zdr": provider.supports_zdr,
                 "data_collection_mode": provider.data_collection_mode,
-                "input_cost_per_1k": provider.input_cost_per_1k,
-                "output_cost_per_1k": provider.output_cost_per_1k,
+                "input_cost_per_1k": input_cost_per_1k,
+                "output_cost_per_1k": output_cost_per_1k,
                 "total_price_per_1k": round(total_price, 6),
                 "avg_latency_ms": provider.avg_latency_ms,
                 "priority": provider.priority,
@@ -1335,9 +1417,9 @@ def _filter_and_sort_candidates(
             preferred_index.get(item[0].name, len(preferred_index)),
             0 if sticky_provider_name and item[0].name == sticky_provider_name else 1,
             *(
-                (_provider_sort_key(item[0], request), -_provider_route_score(item[0], request, classify_workload(request), route_weights)[0])
+                (_provider_sort_key(item[0], item[1], request), -_provider_route_score(item[0], item[1], request, classify_workload(request), route_weights)[0])
                 if sort_mode in {"price", "latency", "priority"}
-                else (-_provider_route_score(item[0], request, classify_workload(request), route_weights)[0], _provider_sort_key(item[0], request))
+                else (-_provider_route_score(item[0], item[1], request, classify_workload(request), route_weights)[0], _provider_sort_key(item[0], item[1], request))
             ),
         )
     )
@@ -2495,7 +2577,7 @@ def _execute_routed_chat_completion(
                    for p in [route.preferred_provider, route.backup_provider] if p]
             raw = [(p, m) for p, m in raw if m]
             for t in _build_candidate_trace(request, raw, guardrails):
-                logger.warning("NO_AVAILABLE_PROVIDER: provider=%s reject=%s prompt_tokens=%s max_input=%s",
+                logger_crud.warning("NO_AVAILABLE_PROVIDER: provider=%s reject=%s prompt_tokens=%s max_input=%s",
                     t["provider"], t["reject_reason"], t["estimated_prompt_tokens"], t["max_input_tokens"])
         raise ValueError("NO_AVAILABLE_PROVIDER")
     for index, (provider, model_mapping) in enumerate(candidates):
@@ -2600,8 +2682,8 @@ def _execute_routed_chat_completion(
             latency = (time.perf_counter() - started_at) * 1000
             billable_prompt_tokens = max(result.prompt_tokens - result.cached_tokens, 0)
             computed_cost = round(
-                (billable_prompt_tokens / 1000) * provider.input_cost_per_1k
-                + (result.completion_tokens / 1000) * provider.output_cost_per_1k,
+                (billable_prompt_tokens / 1000) * _effective_input_cost_per_1k(provider, model_mapping)
+                + (result.completion_tokens / 1000) * _effective_output_cost_per_1k(provider, model_mapping),
                 6,
             )
             # v0.5: Response safety scan
@@ -2952,6 +3034,8 @@ def list_providers(db: Session):
             id=row.id,
             name=row.name,
             adapter_type=row.adapter_type,
+            base_url=row.base_url,
+            has_api_key=bool(row.api_key),
             status=row.status,
             health_status=row.health_status,
             priority=row.priority,
@@ -2971,7 +3055,7 @@ def list_providers(db: Session):
 
 def create_provider(db: Session, provider: schemas.ProviderCreate):
     seed_demo_data(db)
-    payload = provider.model_dump()
+    payload = provider.model_dump(exclude_none=True)
     payload["capability_tags"] = _list_to_csv(payload.pop("capabilities"))
     payload["supported_parameters"] = _list_to_csv(payload.pop("supported_parameters"))
     db_provider = models.Provider(**payload)
@@ -2982,6 +3066,8 @@ def create_provider(db: Session, provider: schemas.ProviderCreate):
         id=db_provider.id,
         name=db_provider.name,
         adapter_type=db_provider.adapter_type,
+        base_url=db_provider.base_url,
+        has_api_key=bool(db_provider.api_key),
         status=db_provider.status,
         health_status=db_provider.health_status,
         priority=db_provider.priority,
@@ -3015,7 +3101,7 @@ def update_provider(db: Session, provider_id: int, provider: schemas.ProviderCre
     db_provider = db.query(models.Provider).filter(models.Provider.id == provider_id).first()
     if db_provider is None:
         raise ValueError(f"INVALID_PROVIDER: {provider_id}")
-    payload = provider.model_dump()
+    payload = provider.model_dump(exclude_none=True)
     payload["capability_tags"] = _list_to_csv(payload.pop("capabilities"))
     payload["supported_parameters"] = _list_to_csv(payload.pop("supported_parameters"))
     for key, value in payload.items():
@@ -3027,6 +3113,8 @@ def update_provider(db: Session, provider_id: int, provider: schemas.ProviderCre
         id=db_provider.id,
         name=db_provider.name,
         adapter_type=db_provider.adapter_type,
+        base_url=db_provider.base_url,
+        has_api_key=bool(db_provider.api_key),
         status=db_provider.status,
         health_status=db_provider.health_status,
         priority=db_provider.priority,
@@ -3045,7 +3133,7 @@ def update_provider(db: Session, provider_id: int, provider: schemas.ProviderCre
 def list_model_catalog(db: Session):
     seed_demo_data(db)
     rows = (
-        db.query(models.ModelCatalog, models.Provider.name)
+        db.query(models.ModelCatalog, models.Provider)
         .join(models.Provider, models.Provider.id == models.ModelCatalog.provider_id)
         .order_by(models.ModelCatalog.model_id.asc(), models.Provider.priority.asc())
         .all()
@@ -3055,17 +3143,25 @@ def list_model_catalog(db: Session):
             id=model.id,
             model_id=model.model_id,
             provider_id=model.provider_id,
-            provider_name=provider_name,
+            provider_name=provider.name,
             provider_model_name=model.provider_model_name,
             status=model.status,
+            input_cost_per_1k=_effective_input_cost_per_1k(provider, model),
+            output_cost_per_1k=_effective_output_cost_per_1k(provider, model),
+            supported_parameters=sorted(_effective_supported_parameters(provider, model)),
+            max_input_tokens=_effective_max_input_tokens(provider, model),
+            max_output_tokens=_effective_max_output_tokens(provider, model),
         )
-        for model, provider_name in rows
+        for model, provider in rows
     ]
 
 
 def create_model_catalog_item(db: Session, model: schemas.ModelCatalogCreate):
     seed_demo_data(db)
-    db_model = models.ModelCatalog(**model.model_dump())
+    payload = model.model_dump()
+    if payload.get("supported_parameters") is not None:
+        payload["supported_parameters"] = _list_to_csv(payload["supported_parameters"])
+    db_model = models.ModelCatalog(**payload)
     db.add(db_model)
     db.commit()
     db.refresh(db_model)
@@ -3077,6 +3173,11 @@ def create_model_catalog_item(db: Session, model: schemas.ModelCatalogCreate):
         provider_name=provider.name if provider else "",
         provider_model_name=db_model.provider_model_name,
         status=db_model.status,
+        input_cost_per_1k=_effective_input_cost_per_1k(provider, db_model) if provider else 0.0,
+        output_cost_per_1k=_effective_output_cost_per_1k(provider, db_model) if provider else 0.0,
+        supported_parameters=sorted(_effective_supported_parameters(provider, db_model)) if provider else [],
+        max_input_tokens=_effective_max_input_tokens(provider, db_model) if provider else 0,
+        max_output_tokens=_effective_max_output_tokens(provider, db_model) if provider else 0,
     )
 
 
@@ -3085,7 +3186,10 @@ def update_model_catalog_item(db: Session, model_id: int, model: schemas.ModelCa
     db_model = db.query(models.ModelCatalog).filter(models.ModelCatalog.id == model_id).first()
     if db_model is None:
         raise ValueError(f"INVALID_MODEL_CATALOG: {model_id}")
-    for key, value in model.model_dump().items():
+    payload = model.model_dump()
+    if payload.get("supported_parameters") is not None:
+        payload["supported_parameters"] = _list_to_csv(payload["supported_parameters"])
+    for key, value in payload.items():
         setattr(db_model, key, value)
     db.commit()
     db.refresh(db_model)
@@ -3097,6 +3201,11 @@ def update_model_catalog_item(db: Session, model_id: int, model: schemas.ModelCa
         provider_name=provider.name if provider else "",
         provider_model_name=db_model.provider_model_name,
         status=db_model.status,
+        input_cost_per_1k=_effective_input_cost_per_1k(provider, db_model) if provider else 0.0,
+        output_cost_per_1k=_effective_output_cost_per_1k(provider, db_model) if provider else 0.0,
+        supported_parameters=sorted(_effective_supported_parameters(provider, db_model)) if provider else [],
+        max_input_tokens=_effective_max_input_tokens(provider, db_model) if provider else 0,
+        max_output_tokens=_effective_max_output_tokens(provider, db_model) if provider else 0,
     )
 
 

@@ -4,6 +4,7 @@ import {
   createEmbedding,
   exportBilling,
   listModels,
+  listProviderSummaries,
 } from './client';
 import axios from 'axios';
 import type {
@@ -38,9 +39,9 @@ import type {
   RouteScoringTrainResult,
 } from '../types';
 
-export { createChatCompletion, createChatCompletionStream, createEmbedding, listModels, exportBilling };
+export { createChatCompletion, createChatCompletionStream, createEmbedding, listModels, listProviderSummaries, exportBilling };
 
-import { getAccessToken, clearTokens } from '../utils/auth';
+import { getAccessToken, getRefreshToken, setTokens, clearTokens } from '../utils/auth';
 
 const adminClient = axios.create({
   baseURL: import.meta.env.VITE_BACKEND_URL || `http://localhost:${import.meta.env.VITE_BACKEND_PORT || '8159'}`,
@@ -56,15 +57,66 @@ adminClient.interceptors.request.use((config) => {
   return config;
 });
 
-// On 401, clear tokens and redirect to login
+// Shared in-flight refresh — concurrent 401s wait on the same call instead of
+// firing N parallel refreshes (which would consume N refresh tokens, since each
+// /auth/refresh rotates the refresh token).
+let refreshInFlight: Promise<string> | null = null;
+
+async function refreshAccessToken(): Promise<string> {
+  if (refreshInFlight) return refreshInFlight;
+  const refresh = getRefreshToken();
+  if (!refresh) throw new Error('no_refresh_token');
+  refreshInFlight = (async () => {
+    try {
+      // Direct axios (not adminClient) so this call bypasses our 401 interceptor.
+      const response = await axios.post(
+        `${adminClient.defaults.baseURL}/auth/refresh`,
+        { refresh_token: refresh },
+      );
+      const { access_token, refresh_token, username, role } = response.data;
+      setTokens(access_token, refresh_token, username, role);
+      return access_token as string;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
+}
+
+// On 401: try refresh once; if it works, retry the original request transparently.
+// If refresh fails (refresh token also expired or absent), clear tokens and redirect.
 adminClient.interceptors.response.use(
   (res) => res,
-  (error) => {
-    if (error?.response?.status === 401) {
+  async (error) => {
+    console.log('[adminClient.401-interceptor] hit', {
+      status: error?.response?.status,
+      url: error?.config?.url,
+      isRetry: error?.config?.__isRetry,
+      hasRefreshToken: !!getRefreshToken(),
+    });
+    const original = error?.config as (typeof error.config & { __isRetry?: boolean }) | undefined;
+    if (error?.response?.status !== 401 || !original || original.__isRetry) {
+      if (error?.response?.status === 401) {
+        console.log('[adminClient.401-interceptor] giving up → clearTokens + redirect');
+        clearTokens();
+        window.location.href = '/login';
+      }
+      return Promise.reject(error);
+    }
+    try {
+      console.log('[adminClient.401-interceptor] calling refreshAccessToken()');
+      const newToken = await refreshAccessToken();
+      console.log('[adminClient.401-interceptor] refresh OK, retrying', original.url);
+      original.__isRetry = true;
+      original.headers = original.headers ?? {};
+      (original.headers as Record<string, string>)['Authorization'] = `Bearer ${newToken}`;
+      return adminClient.request(original);
+    } catch (refreshErr) {
+      console.log('[adminClient.401-interceptor] refresh FAILED', refreshErr);
       clearTokens();
       window.location.href = '/login';
+      return Promise.reject(error);
     }
-    return Promise.reject(error);
   }
 );
 
@@ -310,6 +362,8 @@ export const getProviders = async (): Promise<Provider[]> => {
     id: item.id,
     providerName: item.name,
     adapterType: item.adapter_type,
+    baseUrl: item.base_url,
+    hasApiKey: item.has_api_key,
     status: item.status,
     healthStatus: item.health_status,
     priority: item.priority,
@@ -329,6 +383,8 @@ export const addProvider = async (provider: Provider): Promise<Provider> => {
   const response = await adminClient.post('/admin/providers', {
     name: provider.providerName,
     adapter_type: provider.adapterType || 'mock',
+    base_url: provider.baseUrl || null,
+    ...(provider.apiKey ? { api_key: provider.apiKey } : {}),
     status: provider.status || 'active',
     health_status: provider.healthStatus || 'healthy',
     priority: provider.priority || 100,
@@ -346,6 +402,8 @@ export const addProvider = async (provider: Provider): Promise<Provider> => {
     id: response.data.id,
     providerName: response.data.name,
     adapterType: response.data.adapter_type,
+    baseUrl: response.data.base_url,
+    hasApiKey: response.data.has_api_key,
     status: response.data.status,
     healthStatus: response.data.health_status,
     priority: response.data.priority,
@@ -365,6 +423,8 @@ export const updateProvider = async (provider: Provider): Promise<Provider> => {
   const response = await adminClient.put(`/admin/providers/${provider.id}`, {
     name: provider.providerName,
     adapter_type: provider.adapterType || 'mock',
+    base_url: provider.baseUrl || null,
+    ...(provider.apiKey ? { api_key: provider.apiKey } : {}),
     status: provider.status || 'active',
     health_status: provider.healthStatus || 'healthy',
     priority: Number(provider.priority || 100),
@@ -382,6 +442,8 @@ export const updateProvider = async (provider: Provider): Promise<Provider> => {
     id: response.data.id,
     providerName: response.data.name,
     adapterType: response.data.adapter_type,
+    baseUrl: response.data.base_url,
+    hasApiKey: response.data.has_api_key,
     status: response.data.status,
     healthStatus: response.data.health_status,
     priority: response.data.priority,

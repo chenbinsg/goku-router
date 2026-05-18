@@ -20,12 +20,19 @@ import json
 import httpx
 
 from .. import schemas
-from ..config import get_provider_runtime_config
 from ..models import ModelCatalog, Provider
 from .token_counter import count_messages_tokens, count_tokens
 from .circuit_breaker import circuit_breakers
 
 logger = logging.getLogger(__name__)
+
+
+def _effective_input_cost_per_1k(provider: Provider, model: ModelCatalog) -> float:
+    return float(model.input_cost_per_1k) if model.input_cost_per_1k is not None else float(provider.input_cost_per_1k)
+
+
+def _effective_output_cost_per_1k(provider: Provider, model: ModelCatalog) -> float:
+    return float(model.output_cost_per_1k) if model.output_cost_per_1k is not None else float(provider.output_cost_per_1k)
 
 
 class ProviderExecutionError(Exception):
@@ -198,8 +205,8 @@ def _execute_mock_chat_completion(
     prompt_tokens = count_messages_tokens(messages_dicts, model="gpt-4o")
     completion_tokens = count_tokens(completion, model="gpt-4o")
     cost_amount = round(
-        (prompt_tokens / 1000) * provider.input_cost_per_1k
-        + (completion_tokens / 1000) * provider.output_cost_per_1k,
+        (prompt_tokens / 1000) * _effective_input_cost_per_1k(provider, model)
+        + (completion_tokens / 1000) * _effective_output_cost_per_1k(provider, model),
         6,
     )
     return ProviderResult(
@@ -224,12 +231,11 @@ def _execute_openai_compatible_chat_completion(
     model: ModelCatalog,
     request: schemas.ChatCompletionRequest,
 ) -> ProviderResult:
-    runtime_config = get_provider_runtime_config(provider.name)
-    base_url = runtime_config["base_url"]
-    api_key = runtime_config["api_key"]
+    base_url = provider.base_url
+    api_key = provider.api_key
     if not base_url or not api_key:
         raise ProviderExecutionError(
-            f"Provider {provider.name} is missing BASE_URL or API_KEY configuration"
+            f"Provider {provider.name} is missing base_url or api_key configuration"
         )
 
     url = f"{base_url.rstrip('/')}/chat/completions"
@@ -278,14 +284,16 @@ def _execute_openai_compatible_chat_completion(
     usage = data.get("usage") or {}
     prompt_tokens = int(usage.get("prompt_tokens") or 0)
     completion_tokens = int(usage.get("completion_tokens") or 0)
+    prompt_tokens_details = usage.get("prompt_tokens_details") or {}
+    completion_tokens_details = usage.get("completion_tokens_details") or {}
     cached_tokens = int(
         usage.get("cached_tokens")
-        or usage.get("prompt_tokens_details", {}).get("cached_tokens")
+        or prompt_tokens_details.get("cached_tokens")
         or 0
     )
     reasoning_tokens = int(
         usage.get("reasoning_tokens")
-        or usage.get("completion_tokens_details", {}).get("reasoning_tokens")
+        or completion_tokens_details.get("reasoning_tokens")
         or 0
     )
     provider_reported_cost = float(usage.get("cost") or data.get("cost") or 0.0)
@@ -358,9 +366,12 @@ def execute_chat_completion(
         result.latency_ms = latency_ms
 
         # Update EMA latency on the provider object (caller commits to DB) (v0.4)
-        alpha = getattr(provider, "latency_ema_alpha", 0.1)
+        alpha = getattr(provider, "latency_ema_alpha", 0.1) or 0.1
+        baseline_latency = getattr(provider, "avg_latency_ms", None)
+        if baseline_latency is None:
+            baseline_latency = latency_ms
         provider.avg_latency_ms = round(
-            alpha * latency_ms + (1 - alpha) * provider.avg_latency_ms, 2
+            alpha * latency_ms + (1 - alpha) * baseline_latency, 2
         )
 
         circuit_breakers.record_success(provider.name)

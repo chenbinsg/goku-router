@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Modal, Form, Input, message, Card } from 'antd';
+import { Table, Button, Modal, Form, Input, Select, message, Card } from 'antd';
 import { addModel, getModels, getProviders, updateModel } from '../api';
 import { Model, Provider } from '../types';
 import { useI18n } from '../i18n';
@@ -129,7 +129,17 @@ const ModelsAdminPage: React.FC = () => {
             name="providerId"
             rules={[{ required: true, message: t('modelsAdmin.providerIdRequired') }]}
           >
-            <Input placeholder={providers.map((provider) => `${provider.id}:${provider.providerName}`).join(', ')} />
+            <Select
+              placeholder={t('modelsAdmin.providerIdPlaceholder')}
+              showSearch
+              optionFilterProp="label"
+              options={providers
+                .filter((provider) => provider.id !== undefined)
+                .map((provider) => ({
+                  value: provider.id,
+                  label: `${provider.providerName} (#${provider.id})`,
+                }))}
+            />
           </Form.Item>
           <Form.Item
             label={t('modelsAdmin.providerModelName')}
