@@ -2818,7 +2818,7 @@ def _execute_routed_chat_completion(
         cost_amount=0,
         provider_reported_cost=0,
         fallback_used=len(candidates) > 1,
-        error_code=last_error,
+        error_code=(last_error or "")[:255],
         route_trace_json=json.dumps(route_trace, ensure_ascii=False),
     )
     db.add(failed_log)

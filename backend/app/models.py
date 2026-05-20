@@ -176,7 +176,7 @@ class RequestLog(Base):
     response_healed = Column(Boolean, nullable=False, default=False)
     healing_strategy = Column(String(64), nullable=True)
     fallback_used = Column(Boolean, nullable=False, default=False)
-    error_code = Column(String(64), nullable=True)
+    error_code = Column(String(255), nullable=True)
     route_trace_json = Column(Text, nullable=True)
 
 class BillingRecord(Base):
