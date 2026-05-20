@@ -264,10 +264,22 @@ def _execute_openai_compatible_chat_completion(
     }
 
     # Determine timeout: internal providers use shorter timeout; large remote models need more time
-    timeout = 15.0 if getattr(provider, "host_type", "external") == "internal" else 120.0
+    # external default raised to 300 s — 35B models (Qwen3.6) may take 3–4 min for long outputs
+    timeout = 15.0 if getattr(provider, "host_type", "external") == "internal" else 300.0
 
     try:
         response = httpx.post(url, json=payload, headers=headers, timeout=timeout)
+        if not response.is_success:
+            # Log the full response body so we can diagnose 400/422 errors from vLLM
+            try:
+                body_preview = response.text[:500]
+            except Exception:
+                body_preview = "<unreadable>"
+            import logging as _log
+            _log.getLogger(__name__).warning(
+                "Provider %s returned HTTP %s — body: %s",
+                provider.name, response.status_code, body_preview,
+            )
         response.raise_for_status()
     except httpx.HTTPError as exc:
         raise ProviderExecutionError(
