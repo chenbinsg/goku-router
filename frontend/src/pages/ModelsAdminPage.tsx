@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Button, Modal, Form, Input, Select, message, Card, Space, Popconfirm } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
-import { addModel, getModels, getProviders, updateModel } from '../api';
+import { addModel, deleteModel, getModels, getProviders, updateModel } from '../api';
 import { Model, Provider } from '../types';
 import { useI18n } from '../i18n';
 
@@ -10,6 +10,7 @@ const ModelsAdminPage: React.FC = () => {
   const [models, setModels] = useState<Model[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [editingModel, setEditingModel] = useState<Model | null>(null);
   const [form] = Form.useForm<Model>();
@@ -24,7 +25,6 @@ const ModelsAdminPage: React.FC = () => {
         ]);
         setModels(modelResponse);
         setProviders(providerResponse);
-        message.success(t('modelsAdmin.loaded'));
       } catch (error) {
         message.error(t('modelsAdmin.loadFailed'));
       } finally {
@@ -55,21 +55,53 @@ const ModelsAdminPage: React.FC = () => {
       title: 'Actions',
       key: 'actions',
       render: (_: unknown, record: Model) => (
-        <Button
-          type="link"
-          onClick={() => {
-            setEditingModel(record);
-            form.setFieldsValue(record);
-            setIsModalVisible(true);
-          }}
-        >
-          {t('common.edit')}
-        </Button>
+        <Space>
+          <Button
+            type="link"
+            icon={<EditOutlined />}
+            onClick={() => {
+              setEditingModel(record);
+              form.setFieldsValue(record);
+              setIsModalVisible(true);
+            }}
+          >
+            {t('common.edit')}
+          </Button>
+          <Popconfirm
+            title="确认删除这条模型映射？"
+            onConfirm={async () => {
+              try {
+                await deleteModel(record.id!);
+                setModels((current) => current.filter((m) => m.id !== record.id));
+                message.success('已删除');
+              } catch {
+                message.error('删除失败');
+              }
+            }}
+            okText="删除"
+            cancelText="取消"
+          >
+            <Button type="link" danger icon={<DeleteOutlined />}>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
       ),
     },
   ];
 
+  const formatError = (err: any): string => {
+    const detail = err?.response?.data?.detail;
+    if (!detail) return '操作失败';
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) {
+      return detail.map((d: any) => `${d.loc?.slice(-1)[0] ?? ''}: ${d.msg}`).join('; ');
+    }
+    return JSON.stringify(detail);
+  };
+
   const handleOk = async (values: Model) => {
+    setSubmitting(true);
     try {
       if (editingModel?.id) {
         const updated = await updateModel({ ...editingModel, ...values });
@@ -84,7 +116,9 @@ const ModelsAdminPage: React.FC = () => {
       setEditingModel(null);
       form.resetFields();
     } catch (err: any) {
-      message.error(err?.response?.data?.detail ?? '操作失败');
+      message.error(formatError(err));
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -92,6 +126,7 @@ const ModelsAdminPage: React.FC = () => {
     <Card title={t('modelsAdmin.title')}>
       <Button
         type="primary"
+        icon={<PlusOutlined />}
         onClick={() => {
           setEditingModel(null);
           form.resetFields();
@@ -112,6 +147,7 @@ const ModelsAdminPage: React.FC = () => {
         title={editingModel ? t('modelsAdmin.edit') : t('modelsAdmin.add')}
         open={isModalVisible}
         onCancel={() => {
+          if (submitting) return;
           setIsModalVisible(false);
           setEditingModel(null);
           form.resetFields();
@@ -127,7 +163,7 @@ const ModelsAdminPage: React.FC = () => {
             name="modelId"
             rules={[{ required: true, message: t('modelsAdmin.modelIdRequired') }]}
           >
-            <Input />
+            <Input placeholder="例如: gpt-4o, qwen3.6" />
           </Form.Item>
           <Form.Item
             label="Provider"
@@ -147,13 +183,13 @@ const ModelsAdminPage: React.FC = () => {
             name="providerModelName"
             rules={[{ required: true, message: t('modelsAdmin.providerModelRequired') }]}
           >
-            <Input />
+            <Input placeholder="Provider 侧的实际模型名" />
           </Form.Item>
           <Form.Item name="status" hidden>
             <Input />
           </Form.Item>
           <Form.Item>
-            <Button type="primary" htmlType="submit">
+            <Button type="primary" htmlType="submit" loading={submitting}>
               {t('common.submit')}
             </Button>
           </Form.Item>

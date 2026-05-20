@@ -3100,6 +3100,15 @@ def update_model_catalog_item(db: Session, model_id: int, model: schemas.ModelCa
     )
 
 
+def delete_model_catalog_item(db: Session, model_id: int) -> bool:
+    db_model = db.query(models.ModelCatalog).filter(models.ModelCatalog.id == model_id).first()
+    if db_model is None:
+        return False
+    db.delete(db_model)
+    db.commit()
+    return True
+
+
 def list_route_rules(db: Session):
     seed_demo_data(db)
     rows = db.query(models.RouteRule).order_by(models.RouteRule.model_id.asc()).all()

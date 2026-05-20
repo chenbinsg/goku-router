@@ -386,6 +386,10 @@ export const updateModel = async (model: Model): Promise<Model> => {
   };
 };
 
+export const deleteModel = async (modelId: number): Promise<void> => {
+  await adminClient.delete(`/admin/models/${modelId}`);
+};
+
 export const getProviders = async (): Promise<Provider[]> => {
   const response = await adminClient.get('/admin/providers');
   return response.data.map((item: any) => ({

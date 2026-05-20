@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-REFRESH_TOKEN_EXPIRE_DAYS = 7
+ACCESS_TOKEN_EXPIRE_MINUTES = 480    # 8 hours
+REFRESH_TOKEN_EXPIRE_DAYS = 30       # 30 days
 
 
 def _secret() -> str:

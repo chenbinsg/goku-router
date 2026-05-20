@@ -452,6 +452,12 @@ def update_model_catalog_item(model_id: int, model: schemas.ModelCatalogCreate, 
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@app.delete("/admin/models/{model_id}", status_code=204)
+def delete_model_catalog_item(model_id: int, db: Session = Depends(get_db)):
+    if not crud.delete_model_catalog_item(db=db, model_id=model_id):
+        raise HTTPException(status_code=404, detail=f"Model catalog item {model_id} not found")
+
+
 @app.get("/admin/routes", response_model=list[schemas.RouteRuleItem])
 def list_route_rules(db: Session = Depends(get_db)):
     return crud.list_route_rules(db=db)
