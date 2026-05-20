@@ -237,7 +237,7 @@ def _execute_openai_compatible_chat_completion(
         "model": model.provider_model_name,
         "messages": [message.model_dump(exclude_none=True) for message in request.messages],
     }
-    for key in ["temperature", "top_p", "max_tokens", "stop", "tool_choice"]:
+    for key in ["temperature", "top_p", "max_tokens", "presence_penalty", "stop", "tool_choice"]:
         value = getattr(request, key)
         if value is not None:
             payload[key] = value
@@ -245,14 +245,26 @@ def _execute_openai_compatible_chat_completion(
         payload["tools"] = [tool.model_dump() for tool in request.tools]
     if request.response_format is not None:
         payload["response_format"] = request.response_format.model_dump(exclude_none=True)
+    # Pass through vLLM / Qwen3 extra fields (chat_template_kwargs, top_k, etc.)
+    if request.extra_body:
+        payload.update(request.extra_body)
+
+    # For the openrouter provider (vLLM serving Qwen3 models), always inject
+    # thinking-off + recommended sampling params unless the caller already set them.
+    if provider.name == "openrouter":
+        payload.setdefault("top_k", 20)
+        payload.setdefault("top_p", 0.8)
+        payload.setdefault("presence_penalty", 1.5)
+        ctk = payload.setdefault("chat_template_kwargs", {})
+        ctk.setdefault("enable_thinking", False)
 
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
 
-    # Determine timeout: internal providers (local network) use shorter timeout
-    timeout = 15.0 if getattr(provider, "host_type", "external") == "internal" else 30.0
+    # Determine timeout: internal providers use shorter timeout; large remote models need more time
+    timeout = 15.0 if getattr(provider, "host_type", "external") == "internal" else 120.0
 
     try:
         response = httpx.post(url, json=payload, headers=headers, timeout=timeout)

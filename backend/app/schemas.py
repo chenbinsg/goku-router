@@ -43,11 +43,14 @@ class ChatCompletionRequest(BaseModel):
     temperature: Optional[float] = None
     top_p: Optional[float] = None
     max_tokens: Optional[int] = None
+    presence_penalty: Optional[float] = None
     stop: Optional[List[str] | str] = None
     tools: Optional[List[ToolDefinition]] = None
     tool_choice: Optional[Any] = None
     response_format: Optional[ResponseFormat] = None
     provider: Optional[ProviderPreferences] = None
+    # vLLM / Qwen3 pass-through fields
+    extra_body: Optional[dict[str, Any]] = None
 
 
 class Usage(BaseModel):
@@ -883,7 +886,7 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
-    expires_in: int = 1800      # seconds (30 min)
+    expires_in: int = 28800     # seconds (8 hours)
     role: str
     username: str
 
