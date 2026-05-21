@@ -11,12 +11,14 @@ class Settings(BaseSettings):
     app_env: str = "dev"
     database_url: str = "sqlite:///./app.db"
     router_api_keys: str = "demo-router-key"
+    allowed_origins: str = "http://localhost:5159,http://localhost:5173"
 
     # v1.4.0: Admin console auth
     jwt_secret_key: str = "change-me-in-production-use-a-long-random-string"
     jwt_expire_minutes: int = 1440  # 24 hours
     admin_user: str = "admin"
     admin_password: str = "admin123"   # override via ADMIN_PASSWORD env var
+    router_secret_key: str = ""
 
     model_config = SettingsConfigDict(env_prefix="", env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -42,8 +44,13 @@ def get_provider_runtime_config(provider_name: str) -> dict[str, str | None]:
 
 
 def get_allowed_router_api_keys() -> set[str]:
-    return {
+    keys = {
         item.strip()
         for item in settings.router_api_keys.split(",")
         if item.strip()
     }
+    if settings.app_env.lower() == "production" and (
+        not keys or "demo-router-key" in keys
+    ):
+        raise RuntimeError("ROUTER_API_KEYS must be set to non-demo values in production")
+    return keys

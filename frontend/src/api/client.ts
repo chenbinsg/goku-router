@@ -7,18 +7,32 @@ import {
   ModelListResponse,
   BillingExportResponse
 } from '../types';
+import { getAccessToken } from '../utils/auth';
 
-const routerApiKey = import.meta.env.VITE_ROUTER_API_KEY || 'demo-router-key';
+const BASE_URL = import.meta.env.VITE_BACKEND_URL ?? `http://localhost:${import.meta.env.VITE_BACKEND_PORT || '8159'}`;
+
+const adminAuthHeaders = (): { Authorization: string } => {
+  const token = getAccessToken();
+  if (!token) {
+    throw new Error('Admin login required');
+  }
+  return { Authorization: `Bearer ${token}` };
+};
 
 const client = axios.create({
-  baseURL: import.meta.env.VITE_BACKEND_URL ?? `http://localhost:${import.meta.env.VITE_BACKEND_PORT || '8159'}`,
-  headers: {
-    Authorization: `Bearer ${routerApiKey}`,
-  },
+  baseURL: BASE_URL,
+});
+
+client.interceptors.request.use((config) => {
+  const token = getAccessToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
 });
 
 export const createChatCompletion = async (request: ChatCompletionRequest): Promise<ChatCompletionResponse> => {
-  const response = await client.post<ChatCompletionResponse>('/v1/chat/completions', {
+  const response = await client.post<ChatCompletionResponse>('/admin/playground/chat/completions', {
     ...request,
     top_p: request.topP,
     max_tokens: request.maxTokens,
@@ -49,11 +63,11 @@ export const createChatCompletionStream = async (
   onChunk: (chunk: string) => void,
   onDone: (payload: { provider?: string; fallbackUsed?: boolean; requestId?: string; cacheHit?: boolean; responseHealed?: boolean; healingStrategy?: string; usage?: ChatCompletionResponse['usage'] }) => void,
 ): Promise<void> => {
-  const response = await fetch(`${client.defaults.baseURL}/v1/chat/completions`, {
+  const response = await fetch(`${BASE_URL}/admin/playground/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${routerApiKey}`,
+      ...adminAuthHeaders(),
     },
     body: JSON.stringify({
       ...request,
@@ -129,12 +143,12 @@ export const createChatCompletionStream = async (
 };
 
 export const createEmbedding = async (request: EmbeddingRequest): Promise<EmbeddingResponse> => {
-  const response = await client.post<EmbeddingResponse>('/v1/embeddings', request);
+  const response = await client.post<EmbeddingResponse>('/admin/playground/embeddings', request);
   return response.data;
 };
 
 export const listModels = async (): Promise<ModelListResponse> => {
-  const response = await client.get<ModelListResponse>('/v1/models');
+  const response = await client.get<ModelListResponse>('/admin/playground/models');
   return response.data;
 };
 

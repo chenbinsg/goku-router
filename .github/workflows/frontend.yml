@@ -14,7 +14,7 @@ on:
 jobs:
   build:
     name: Type-check & Build
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, goku-router-ci]
     defaults:
       run:
         working-directory: frontend
