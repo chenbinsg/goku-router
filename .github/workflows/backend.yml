@@ -14,7 +14,7 @@ on:
 jobs:
   test:
     name: Lint & Test
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, goku-router-ci]
     defaults:
       run:
         working-directory: backend

@@ -18,6 +18,7 @@ from .db import Base
 from .services.providers import ProviderExecutionError, ProviderResult, execute_chat_completion
 from .services.circuit_breaker import circuit_breakers
 from .services.safety import scan_request, scan_response
+from .services.secrets import decrypt_secret, encrypt_secret
 
 logger_crud = logging.getLogger(__name__)
 
@@ -5148,7 +5149,7 @@ def create_byok_key(db: Session, payload: schemas.ByokKeyCreate) -> schemas.Byok
     key = models.ByokKey(
         label=payload.label,
         provider=payload.provider,
-        api_key_encrypted=payload.api_key,
+        api_key_encrypted=encrypt_secret(payload.api_key),
         key_preview=_make_key_preview(payload.api_key),
         org_label=payload.org_label,
         project_label=payload.project_label,
@@ -5198,7 +5199,7 @@ def get_byok_key_secret(db: Session, key_id: int) -> str | None:
         models.ByokKey.id == key_id,
         models.ByokKey.is_active == True,
     ).first()
-    return key.api_key_encrypted if key else None
+    return decrypt_secret(key.api_key_encrypted) if key else None
 
 
 # ── Image model → provider resolution ────────────────────────────────────────
@@ -5234,7 +5235,7 @@ def _get_byok_key_for_provider(db: Session, provider: str) -> tuple[str | None, 
         return None, None
     # base_url stored in org_label field as a convention if set, otherwise None
     base_url = key.org_label if key.org_label and key.org_label.startswith("http") else None
-    return key.api_key_encrypted, base_url
+    return decrypt_secret(key.api_key_encrypted), base_url
 
 
 def create_image_generation(
