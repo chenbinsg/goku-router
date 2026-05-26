@@ -937,6 +937,54 @@ def run_ab_significance_check(db: Session = Depends(get_db)):
     return crud.run_ab_significance_check(db=db)
 
 
+# ── Runtime frontend config ────────────────────────────────────────────────────
+# Served before the SPA catch-all so window.__CONFIG__ is populated from runtime
+# env vars (not baked in at Vite build time). Lets one image deploy to any env.
+from fastapi.responses import PlainTextResponse  # noqa: E402
+import json as _json  # noqa: E402
+
+
+@app.get("/config.js", include_in_schema=False)
+def runtime_config() -> PlainTextResponse:
+    payload = {"backendUrl": os.environ.get("BACKEND_URL", "")}
+    return PlainTextResponse(
+        f"window.__CONFIG__ = {_json.dumps(payload)};",
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+# ── Optional SPA serving ───────────────────────────────────────────────────────
+# If a built Vite bundle is present (combined-image deployment), mount it at /
+# with an SPA fallback so React Router paths like /admin/dashboard work on hard
+# refresh. The catch-all is registered AFTER all API routes above, so the API
+# always wins on conflicting paths.
+from pathlib import Path  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+from fastapi.responses import FileResponse  # noqa: E402
+
+_FRONTEND_DIST = Path(os.environ.get("FRONTEND_DIST_PATH", "/app/frontend_dist"))
+if _FRONTEND_DIST.is_dir():
+    _assets_dir = _FRONTEND_DIST / "assets"
+    if _assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=_assets_dir), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def _spa_fallback(full_path: str):
+        candidate = _FRONTEND_DIST / full_path
+        if full_path and candidate.is_file():
+            headers = (
+                {"Cache-Control": "public, max-age=31536000, immutable"}
+                if full_path.startswith("assets/")
+                else {"Cache-Control": "no-cache"}
+            )
+            return FileResponse(candidate, headers=headers)
+        return FileResponse(
+            _FRONTEND_DIST / "index.html",
+            headers={"Cache-Control": "no-cache"},
+        )
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))

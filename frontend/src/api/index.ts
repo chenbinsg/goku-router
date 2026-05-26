@@ -44,7 +44,12 @@ export { createChatCompletion, createChatCompletionStream, createEmbedding, list
 import { getAccessToken, getRefreshToken, setTokens, clearTokens } from '../utils/auth';
 
 const adminClient = axios.create({
-  baseURL: import.meta.env.VITE_BACKEND_URL || `http://localhost:${import.meta.env.VITE_BACKEND_PORT || '8159'}`,
+  baseURL:
+    (window as any).__CONFIG__?.backendUrl
+    || import.meta.env.VITE_BACKEND_URL
+    || (import.meta.env.DEV
+      ? `http://localhost:${import.meta.env.VITE_BACKEND_PORT || '8159'}`
+      : ''),
 });
 
 // Attach JWT on every /admin request

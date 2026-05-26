@@ -8,10 +8,19 @@ import {
   BillingExportResponse
 } from '../types';
 
+declare global {
+  interface Window { __CONFIG__?: { backendUrl?: string } }
+}
+
 const routerApiKey = import.meta.env.VITE_ROUTER_API_KEY || 'demo-router-key';
 
+const resolvedBaseUrl =
+  window.__CONFIG__?.backendUrl
+  || import.meta.env.VITE_BACKEND_URL
+  || (import.meta.env.DEV ? `http://localhost:${import.meta.env.VITE_BACKEND_PORT || '8159'}` : '');
+
 const client = axios.create({
-  baseURL: import.meta.env.VITE_BACKEND_URL || `http://localhost:${import.meta.env.VITE_BACKEND_PORT || '8159'}`,
+  baseURL: resolvedBaseUrl,
   headers: {
     Authorization: `Bearer ${routerApiKey}`,
   },
