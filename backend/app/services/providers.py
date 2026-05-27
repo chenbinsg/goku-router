@@ -10,12 +10,13 @@ v0.3: Real token counting via tiktoken
 v0.4: Circuit breaker integration + live latency EMA updates
 """
 from __future__ import annotations
-
+from datetime import datetime
 import time
 import logging
 from dataclasses import dataclass
 from typing import Any
 import json
+import uuid
 
 import httpx
 
@@ -218,7 +219,8 @@ def _execute_mock_chat_completion(
 
 
 # ── OpenAI-compatible adapter (covers vLLM, Ollama, OpenAI, DeepSeek, etc.) ───
-
+def _log_timestamp() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 def _execute_openai_compatible_chat_completion(
     provider: Provider,
     model: ModelCatalog,
@@ -268,7 +270,18 @@ def _execute_openai_compatible_chat_completion(
     timeout = 15.0 if getattr(provider, "host_type", "external") == "internal" else 300.0
 
     try:
+        value = payload.get("max_tokens")
+        taskid = request.task_id or "no_taskid"
+        print("max_tokens =", repr(value), "type =", type(value))
+        if payload.get("max_tokens") > 1:
+            trace_id = str(uuid.uuid4())
+            print(f"[{_log_timestamp()}] taskid:trace_id:playload----------------------------------{taskid}:{trace_id}:{payload}")
+            started_at = time.perf_counter()
         response = httpx.post(url, json=payload, headers=headers, timeout=timeout)
+        if payload.get("max_tokens") > 1:
+            elapsed_seconds = time.perf_counter() - started_at
+            print(f"[{_log_timestamp()}] trace_id_elapsed_seconds------------------{taskid}:{trace_id} {elapsed_seconds:.3f}s")
+            print(f"[{_log_timestamp()}] {taskid}:{trace_id}:response-----------------------:{json.dumps(response.json(), ensure_ascii=False, indent=2)}")
         if not response.is_success:
             # Log the full response body so we can diagnose 400/422 errors from vLLM
             try:
