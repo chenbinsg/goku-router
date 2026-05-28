@@ -40,6 +40,16 @@ if [ -f "$_DSR1_SCRIPT" ] && [ -f "$_DSR1_MODEL" ]; then
 fi
 unset _DSR1_SCRIPT _DSR1_MODEL
 
+# ── Wait for MySQL to be ready ────────────────────────────────────────────────
+_DB_HOST=$(echo "${DATABASE_URL:-}" | sed -n 's|.*@\([^:/]*\).*|\1|p')
+_DB_PORT=$(echo "${DATABASE_URL:-}" | sed -n 's|.*:\([0-9]*\)/.*|\1|p')
+_DB_HOST=${_DB_HOST:-127.0.0.1}; _DB_PORT=${_DB_PORT:-3306}
+for _i in 1 2 3 4 5; do
+  nc -z "$_DB_HOST" "$_DB_PORT" 2>/dev/null && break
+  echo "Waiting for MySQL at $_DB_HOST:$_DB_PORT (attempt $_i/5)..."
+  sleep 2
+done
+
 # ── Start backend via launchd (auto-restart on crash) ─────────────────────────
 _PLIST="$HOME/Library/LaunchAgents/com.chenbin.goku-router.plist"
 echo "Starting backend on port 8159 (via launchd)..."
