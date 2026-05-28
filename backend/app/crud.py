@@ -2495,7 +2495,7 @@ def _execute_routed_chat_completion(
                    for p in [route.preferred_provider, route.backup_provider] if p]
             raw = [(p, m) for p, m in raw if m]
             for t in _build_candidate_trace(request, raw, guardrails):
-                logger.warning("NO_AVAILABLE_PROVIDER: provider=%s reject=%s prompt_tokens=%s max_input=%s",
+                logger_crud.warning("NO_AVAILABLE_PROVIDER: provider=%s reject=%s prompt_tokens=%s max_input=%s",
                     t["provider"], t["reject_reason"], t["estimated_prompt_tokens"], t["max_input_tokens"])
         raise ValueError("NO_AVAILABLE_PROVIDER")
     for index, (provider, model_mapping) in enumerate(candidates):

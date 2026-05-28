@@ -40,12 +40,27 @@ if [ -f "$_DSR1_SCRIPT" ] && [ -f "$_DSR1_MODEL" ]; then
 fi
 unset _DSR1_SCRIPT _DSR1_MODEL
 
-# ── Start backend ──────────────────────────────────────────────────────────────
-cd "$DIR/backend"
-echo "Starting backend on port 8159..."
-nohup "$DIR/.venv/bin/python" -m uvicorn app.main:app --host 0.0.0.0 --port 8159 > "$DIR/backend.log" 2>&1 &
-echo $! > "$DIR/backend.pid"
-echo "Backend PID: $(cat $DIR/backend.pid)"
+# ── Start backend via launchd (auto-restart on crash) ─────────────────────────
+_PLIST="$HOME/Library/LaunchAgents/com.chenbin.goku-router.plist"
+echo "Starting backend on port 8159 (via launchd)..."
+if [ -f "$_PLIST" ]; then
+  # Load plist — launchd starts the process and will restart it on crash
+  launchctl load "$_PLIST" 2>/dev/null || true
+  # Give it a moment then record the PID launchd assigned
+  sleep 2
+  _PID=$(pgrep -f "uvicorn app.main.*8159" | head -1 || true)
+  if [ -n "$_PID" ]; then
+    echo "$_PID" > "$DIR/backend.pid"
+    echo "Backend PID: $_PID (launchd-managed)"
+  fi
+else
+  # Fallback: plain nohup if plist not installed
+  cd "$DIR/backend"
+  nohup "$DIR/.venv/bin/python" -m uvicorn app.main:app --host 0.0.0.0 --port 8159 > "$DIR/backend.log" 2>&1 &
+  echo $! > "$DIR/backend.pid"
+  echo "Backend PID: $(cat $DIR/backend.pid) (nohup fallback)"
+fi
+unset _PLIST _PID
 
 # ── Start frontend dev server ──────────────────────────────────────────────────
 cd "$DIR/frontend"

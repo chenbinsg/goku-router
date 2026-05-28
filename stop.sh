@@ -2,6 +2,13 @@
 DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$DIR"
 
+# ── Unload launchd agent first (stops backend and prevents auto-restart) ───────
+_PLIST="$HOME/Library/LaunchAgents/com.chenbin.goku-router.plist"
+if [ -f "$_PLIST" ]; then
+  launchctl unload "$_PLIST" 2>/dev/null || true
+fi
+unset _PLIST
+
 for pidfile in backend.pid frontend.pid llama-qwen.pid llama-deepseek.pid; do
   if [ -f "$pidfile" ]; then
     PID=$(cat "$pidfile")
