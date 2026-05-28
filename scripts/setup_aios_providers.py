@@ -66,6 +66,7 @@ print("  Cleared route_rules, model_catalog, providers.")
 print("\n=== Inserting providers ===")
 providers = [
     {
+        # OpenAI official API — primary for GPT models
         "name": "openai_official",
         "adapter_type": "openai_compatible",
         "status": "active",
@@ -82,10 +83,12 @@ providers = [
         "max_output_tokens": 16384,
     },
     {
+        # Remote Qwen server — INACTIVE: LAN host 192.168.x.x not reachable from this machine.
+        # Configure PROVIDER_REMOTE_QWEN_BASE_URL and set status=active only when reachable.
         "name": "remote_qwen",
         "adapter_type": "openai_compatible",
-        "status": "active",
-        "health_status": "healthy",
+        "status": "inactive",
+        "health_status": "unknown",
         "priority": 200,
         "input_cost_per_1k": 0.002,
         "output_cost_per_1k": 0.006,
@@ -98,6 +101,7 @@ providers = [
         "max_output_tokens": 8192,
     },
     {
+        # Local Qwen 2.5-14B via llama.cpp on port 8080
         "name": "local_qwen",
         "adapter_type": "openai_compatible",
         "status": "active",
@@ -114,6 +118,7 @@ providers = [
         "max_output_tokens": 8192,
     },
     {
+        # Local DeepSeek-R1-7B via llama.cpp on port 8081
         "name": "local_deepseek",
         "adapter_type": "openai_compatible",
         "status": "active",
@@ -128,6 +133,24 @@ providers = [
         "supported_parameters": "temperature,top_p,max_tokens,stop,response_format",
         "max_input_tokens": 32768,
         "max_output_tokens": 8192,
+    },
+    {
+        # OpenRouter — primary for Qwen3.6 and Qwen-series models
+        # PROVIDER_OPENROUTER_API_KEY must be set in .env
+        "name": "openrouter",
+        "adapter_type": "openai_compatible",
+        "status": "active",
+        "health_status": "healthy",
+        "priority": 150,
+        "input_cost_per_1k": 0.05,
+        "output_cost_per_1k": 0.20,
+        "avg_latency_ms": 1200.0,
+        "capability_tags": "chat,tool_calling,structured_output",
+        "supports_zdr": False,
+        "data_collection_mode": "allow",
+        "supported_parameters": "temperature,top_p,max_tokens,stop,tools,tool_choice,response_format",
+        "max_input_tokens": 128000,
+        "max_output_tokens": 32768,
     },
 ]
 
@@ -152,17 +175,25 @@ for p in providers:
 print("\n=== Inserting model catalog ===")
 # model_id : [(provider_name, provider_model_name)]
 model_entries = [
-    # OpenAI models → openai_official primary, remote_qwen backup
-    ("gpt-4o-mini",     "openai_official", "gpt-4o-mini"),
-    ("gpt-4o-mini",     "remote_qwen",     "qwen2.5-14b"),
-    ("gpt-4o",          "openai_official", "gpt-4o"),
-    ("gpt-4o",          "remote_qwen",     "qwen2.5-14b"),
-    # Qwen model → remote first, local fallback
-    ("qwen2.5-14b",     "remote_qwen",     "qwen2.5-14b"),
-    ("qwen2.5-14b",     "local_qwen",      "qwen2.5-14b"),
+    # OpenAI GPT models → official API primary, openrouter backup
+    ("gpt-4o-mini",           "openai_official", "gpt-4o-mini"),
+    ("gpt-4o",                "openai_official", "gpt-4o"),
+    ("gpt-4-turbo",           "openai_official", "gpt-4-turbo"),
+    ("gpt-3.5-turbo",         "openai_official", "gpt-3.5-turbo"),
+    ("gpt-4",                 "openai_official", "gpt-4"),
+    # Qwen3.6 → openrouter (sole provider; remote_qwen unreachable)
+    ("qwen3.6",               "openrouter",      "Qwen3.6-35B-A3B-FP8"),
+    # Qwen-series aliases → openrouter
+    ("qwen-max",              "openrouter",      "Qwen3.6-35B-A3B-FP8"),
+    ("qwen-turbo",            "openrouter",      "Qwen3.6-35B-A3B-FP8"),
+    # Qwen 2.5-14B → openrouter primary, local_qwen fallback
+    ("qwen2.5-14b",           "openrouter",      "Qwen3.6-35B-A3B-FP8"),
+    ("qwen2.5-14b",           "local_qwen",      "qwen2.5-14b"),
+    # Local Qwen 2.5-7B
+    ("qwen2.5-7b-instruct",   "local_qwen",      "qwen2.5-7b-instruct"),
     # DeepSeek reasoning model → local only
-    ("deepseek-r1-7b",  "local_deepseek",  "deepseek-r1-7b"),
-    ("deepseek-r1",     "local_deepseek",  "deepseek-r1-7b"),
+    ("deepseek-r1-7b",        "local_deepseek",  "deepseek-r1-7b"),
+    ("deepseek-r1",           "local_deepseek",  "deepseek-r1-7b"),
 ]
 
 for model_id, provider_name, provider_model_name in model_entries:
@@ -176,11 +207,22 @@ for model_id, provider_name, provider_model_name in model_entries:
 print("\n=== Inserting route rules ===")
 # Primary + backup for each logical model_id the router client will request
 route_rules = [
-    ("gpt-4o-mini",    "openai_official", "remote_qwen"),
-    ("gpt-4o",         "openai_official", "remote_qwen"),
-    ("qwen2.5-14b",    "remote_qwen",     "local_qwen"),
-    ("deepseek-r1-7b", "local_deepseek",  None),
-    ("deepseek-r1",    "local_deepseek",  None),
+    # GPT models: official API preferred, openrouter as backup
+    ("gpt-4o-mini",          "openai_official", "openrouter"),
+    ("gpt-4o",               "openai_official", "openrouter"),
+    ("gpt-4-turbo",          "openai_official", "openrouter"),
+    ("gpt-3.5-turbo",        "openai_official", "openrouter"),
+    ("gpt-4",                "openai_official", "openrouter"),
+    # Qwen3.6: openrouter only (remote_qwen is inactive/unreachable)
+    ("qwen3.6",              "openrouter",      None),
+    # Qwen aliases: openrouter only
+    ("qwen-max",             "openrouter",      None),
+    ("qwen-turbo",           "openrouter",      None),
+    # Qwen 2.5-14B: openrouter preferred, local fallback
+    ("qwen2.5-14b",          "openrouter",      "local_qwen"),
+    # DeepSeek: local only
+    ("deepseek-r1-7b",       "local_deepseek",  None),
+    ("deepseek-r1",          "local_deepseek",  None),
 ]
 
 for model_id, preferred, backup in route_rules:
