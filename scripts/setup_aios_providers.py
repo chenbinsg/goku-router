@@ -56,11 +56,13 @@ for constraint in unique_constraints:
     print(f"  Dropping UNIQUE constraint '{constraint}' from model_catalog...")
     cur.execute(f"ALTER TABLE model_catalog DROP INDEX `{constraint}`")
 
-# Clear old demo data
+# Clear old demo data (disable FK checks so we can wipe in any order)
 print("\n=== Clearing old demo data ===")
+cur.execute("SET FOREIGN_KEY_CHECKS = 0")
 cur.execute("DELETE FROM route_rules")
 cur.execute("DELETE FROM model_catalog")
 cur.execute("DELETE FROM providers")
+cur.execute("SET FOREIGN_KEY_CHECKS = 1")
 print("  Cleared route_rules, model_catalog, providers.")
 
 print("\n=== Inserting providers ===")
