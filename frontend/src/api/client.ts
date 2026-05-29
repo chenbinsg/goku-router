@@ -11,7 +11,7 @@ import {
 const routerApiKey = import.meta.env.VITE_ROUTER_API_KEY || 'demo-router-key';
 
 const client = axios.create({
-  baseURL: import.meta.env.VITE_BACKEND_URL || `http://localhost:${import.meta.env.VITE_BACKEND_PORT || '8159'}`,
+  baseURL: import.meta.env.VITE_BACKEND_URL ?? `http://localhost:${import.meta.env.VITE_BACKEND_PORT || '8159'}`,
   headers: {
     Authorization: `Bearer ${routerApiKey}`,
   },

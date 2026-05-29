@@ -3,7 +3,8 @@ import os
 
 from fastapi import FastAPI, Depends, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
@@ -988,6 +989,37 @@ def delete_byok_key(key_id: int, db: Session = Depends(get_db)):
     """Permanently delete a BYOK key."""
     if not crud.delete_byok_key(db=db, key_id=key_id):
         raise HTTPException(status_code=404, detail="BYOK key not found")
+
+
+# ── Frontend SPA (served under /console to avoid the /admin and /v1 API namespace) ──
+# The Docker build copies the Vite build to ../frontend/dist. We serve it same-origin
+# under /console so the API namespace (/admin, /v1, /auth) is never shadowed, and the
+# admin JWT middleware (which 401s tokenless GETs under /admin/) never blocks page loads.
+_FRONTEND_DIST = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist")
+)
+
+if os.path.isfile(os.path.join(_FRONTEND_DIST, "index.html")):
+    # Hashed build assets (Vite emits them under /console/assets/* because base=/console/).
+    _assets_dir = os.path.join(_FRONTEND_DIST, "assets")
+    if os.path.isdir(_assets_dir):
+        app.mount("/console/assets", StaticFiles(directory=_assets_dir), name="console-assets")
+
+    _index_html = os.path.join(_FRONTEND_DIST, "index.html")
+
+    @app.get("/", include_in_schema=False)
+    def _root_redirect():
+        return RedirectResponse(url="/console/")
+
+    @app.get("/console", include_in_schema=False)
+    @app.get("/console/{full_path:path}", include_in_schema=False)
+    def _serve_console(full_path: str = ""):
+        # Serve a real file if it exists (favicon, etc.); otherwise fall back to
+        # index.html so client-side routes (e.g. /console/admin/dashboard) resolve.
+        candidate = os.path.normpath(os.path.join(_FRONTEND_DIST, full_path))
+        if candidate.startswith(_FRONTEND_DIST) and os.path.isfile(candidate):
+            return FileResponse(candidate)
+        return FileResponse(_index_html)
 
 
 if __name__ == "__main__":

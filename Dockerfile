@@ -3,7 +3,10 @@ WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm install
 COPY frontend/ ./
-RUN npm run build
+# Build the SPA to be served same-origin by the backend under /console:
+#   VITE_BASE        -> asset paths + router basename live under /console/
+#   VITE_BACKEND_URL -> empty => API calls are relative to the current origin
+RUN VITE_BASE=/console/ VITE_BACKEND_URL= npm run build
 
 FROM python:3.12-slim
 WORKDIR /app

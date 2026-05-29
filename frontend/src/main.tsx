@@ -7,7 +7,7 @@ import { I18nProvider } from './i18n';
 ReactDOM.render(
   <React.StrictMode>
     <I18nProvider>
-      <BrowserRouter>
+      <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/+$/, '') || undefined}>
         <App />
       </BrowserRouter>
     </I18nProvider>
