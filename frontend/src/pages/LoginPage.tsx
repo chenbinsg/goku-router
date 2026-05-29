@@ -18,7 +18,7 @@ const rollingKeyframes = `
 `;
 
 const BACKEND =
-  (import.meta as any).env?.VITE_BACKEND_URL ||
+  (import.meta as any).env?.VITE_BACKEND_URL ??
   `http://localhost:${(import.meta as any).env?.VITE_BACKEND_PORT || '8159'}`;
 
 const LoginPage: React.FC = () => {

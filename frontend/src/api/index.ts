@@ -42,7 +42,8 @@ export { createChatCompletion, createChatCompletionStream, createEmbedding, list
 
 import { getAccessToken, getRefreshToken, setTokens, clearTokens, getUser } from '../utils/auth';
 
-const BASE_URL = import.meta.env.VITE_BACKEND_URL || `http://localhost:${import.meta.env.VITE_BACKEND_PORT || '8159'}`;
+// `?? ` (not `||`) so an explicit empty VITE_BACKEND_URL means "same origin" (Docker build).
+const BASE_URL = import.meta.env.VITE_BACKEND_URL ?? `http://localhost:${import.meta.env.VITE_BACKEND_PORT || '8159'}`;
 
 const adminClient = axios.create({ baseURL: BASE_URL });
 
