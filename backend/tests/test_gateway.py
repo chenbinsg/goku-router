@@ -3,9 +3,10 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from app.main import app
+from tests.helpers import authenticate_admin_client
 
 
-client = TestClient(app)
+client = authenticate_admin_client(TestClient(app))
 AUTH_HEADERS = {"Authorization": "Bearer demo-router-key"}
 
 
@@ -1182,9 +1183,13 @@ def test_expired_router_api_key_is_rejected():
     assert created_response.status_code == 200
     expired_key = created_response.json()["plain_api_key"]
 
-    response = client.get(
-        "/v1/models",
+    response = client.post(
+        "/v1/chat/completions",
         headers={"Authorization": f"Bearer {expired_key}"},
+        json={
+            "model": "model1",
+            "messages": [{"role": "user", "content": "Expired key check"}],
+        },
     )
     assert response.status_code == 401
 

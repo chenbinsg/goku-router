@@ -1,9 +1,10 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
+from tests.helpers import authenticate_admin_client
 
 
-client = TestClient(app)
+client = authenticate_admin_client(TestClient(app))
 
 
 def test_provider_connection_endpoint_for_mock_provider():
