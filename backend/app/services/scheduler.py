@@ -97,45 +97,11 @@ def rollup_monthly_billing():
 
 def enforce_log_retention():
     """Delete RequestLog rows older than the configured retention_days (default 90)."""
-    from .. import models
     import os
     db = _get_db()
     try:
         retention_days = int(os.environ.get("LOG_RETENTION_DAYS", "90"))
         cutoff = datetime.now(UTC) - timedelta(days=retention_days)
-
-        # SQLite stores datetimes without tz; compare naively
-        cutoff_naive = cutoff.replace(tzinfo=None)
-
-        deleted = 0
-        # Delete in batches to avoid locking
-        while True:
-            ids = [
-                row.id for row in
-                db.query(models.RequestLog.id)
-                  .filter(models.RequestLog.id <= (
-                      db.query(models.RequestLog.id)
-                        .filter(models.RequestLog.id > 0)
-                        .order_by(models.RequestLog.id.asc())
-                        .limit(500)
-                        .subquery()
-                  ))
-                  .limit(500)
-                  .all()
-            ]
-            # Simpler: just bulk delete with date filter
-            batch = (
-                db.query(models.RequestLog)
-                  .filter(models.RequestLog.id > 0)
-                  .limit(500)
-                  .all()
-            )
-            to_delete = []
-            for row in batch:
-                # Compare ignoring timezone
-                row_dt = row.id  # placeholder check
-                to_delete.append(row.id)
-            break  # simplified: use direct SQL delete
 
         from sqlalchemy import text
         result = db.execute(
@@ -163,11 +129,9 @@ def enforce_log_retention():
 def run_anomaly_sweep():
     """Detect anomalies using rolling baselines and configurable thresholds."""
     from .. import models
-    from sqlalchemy import func
     db = _get_db()
     try:
         now = datetime.now(UTC)
-        window_start = now - timedelta(hours=1)
         baseline_start = now - timedelta(days=7)
 
         # Get configurable thresholds (global defaults if no org-specific config)
@@ -176,7 +140,6 @@ def run_anomaly_sweep():
         ).first()
         failure_threshold = cfg.provider_failure_rate_pct if cfg else 25.0
         latency_threshold = cfg.provider_latency_ms if cfg else 600.0
-        fallback_threshold = cfg.workspace_fallback_rate_pct if cfg else 30.0
         cost_multiplier = cfg.cost_spike_multiplier if cfg else 3.0
 
         # Recent window: last 1 hour

@@ -16,8 +16,7 @@ from sqlalchemy.orm import Session
 from . import models, schemas
 from .db import Base
 from .services.providers import ProviderExecutionError, ProviderResult, execute_chat_completion
-from .services.circuit_breaker import circuit_breakers
-from .services.safety import scan_request, scan_response
+from .services.safety import scan_response
 from .services.secrets import decrypt_secret, encrypt_secret
 
 logger_crud = logging.getLogger(__name__)
@@ -1658,7 +1657,7 @@ def export_batch_policy_dry_run_report(
 ) -> schemas.DownloadArtifactResponse:
     result = run_batch_policy_dry_run(db=db, request=request)
     output = io.StringIO()
-    output.write(f"# Batch Policy Preview Report\n\n")
+    output.write("# Batch Policy Preview Report\n\n")
     output.write(f"- Dataset: `{result.dataset_name}`\n")
     output.write(f"- Workspace: `{result.workspace_label or 'N/A'}`\n")
     output.write(f"- Total Cases: `{result.total_cases}`\n")
@@ -4217,7 +4216,7 @@ def get_billing_invoice(
     First tries MonthlyBillingSummary (if the rollup job has run),
     then falls back to aggregating BillingRecord directly (mid-month).
     """
-    from datetime import datetime, UTC
+    from datetime import datetime
 
     if month is None:
         month = datetime.now(UTC).strftime("%Y-%m")
@@ -4489,7 +4488,7 @@ def search_request_logs(
     limit: int,
     offset: int,
 ) -> dict:
-    from datetime import datetime, UTC
+    from datetime import datetime
 
     query = db.query(models.RequestLog)
 
@@ -4508,7 +4507,7 @@ def search_request_logs(
         query = query.filter(models.RequestLog.organization_id == org_id)
     if from_dt:
         try:
-            dt = datetime.fromisoformat(from_dt.replace("Z", "+00:00"))
+            datetime.fromisoformat(from_dt.replace("Z", "+00:00"))
             query = query.filter(models.RequestLog.id >= 0)  # id placeholder; use raw SQL below
         except ValueError:
             pass
@@ -4557,9 +4556,6 @@ def update_provider_quality_scores(db: Session, lookback_hours: int = 6) -> list
     Compute per-(provider, workload_class) quality metrics from recent RequestLog rows
     and upsert into ProviderQualityScore. Called by drift_monitor_job.
     """
-    from datetime import datetime, UTC, timedelta
-
-    cutoff = datetime.now(UTC) - timedelta(hours=lookback_hours)
     rows = (
         db.query(models.RequestLog)
         .filter(models.RequestLog.id > 0)
@@ -4831,7 +4827,7 @@ def run_ab_significance_check(db: Session) -> schemas.ABSignificanceResult:
     Promotes challenger if p < 0.05 and ran ≥ 7 days.
     Rolls back if challenger is significantly WORSE (p < 0.05 and negative effect).
     """
-    from datetime import datetime, UTC, timedelta
+    from datetime import datetime, UTC
 
     experiment = _get_active_route_scoring_experiment(db)
     if experiment is None:
@@ -5197,7 +5193,7 @@ def get_byok_key_secret(db: Session, key_id: int) -> str | None:
     """Return the raw API key for internal routing use only — never expose in API responses."""
     key = db.query(models.ByokKey).filter(
         models.ByokKey.id == key_id,
-        models.ByokKey.is_active == True,
+        models.ByokKey.is_active.is_(True),
     ).first()
     return decrypt_secret(key.api_key_encrypted) if key else None
 
@@ -5229,7 +5225,7 @@ def _get_byok_key_for_provider(db: Session, provider: str) -> tuple[str | None, 
     """Return (api_key, base_url) from BYOK table for the given provider."""
     key = db.query(models.ByokKey).filter(
         models.ByokKey.provider == provider,
-        models.ByokKey.is_active == True,
+        models.ByokKey.is_active.is_(True),
     ).order_by(models.ByokKey.id.desc()).first()
     if key is None:
         return None, None
@@ -5298,7 +5294,7 @@ def create_image_generation(
     # Update BYOK last_used_at
     key_row = db.query(models.ByokKey).filter(
         models.ByokKey.provider == provider_name,
-        models.ByokKey.is_active == True,
+        models.ByokKey.is_active.is_(True),
     ).order_by(models.ByokKey.id.desc()).first()
     if key_row:
         key_row.last_used_at = datetime.now(UTC)
