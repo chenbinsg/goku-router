@@ -11,6 +11,9 @@ build/
 # Environment
 .env
 .env.local
+.env.bak.*
+ROUTER_CREDENTIALS.txt
+ROUTER_CREDENTIALS.txt.bak.*
 
 # Logs & PIDs
 *.log

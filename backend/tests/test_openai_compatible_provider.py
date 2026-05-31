@@ -6,6 +6,7 @@ from app.services import providers
 class DummyResponse:
     def __init__(self, payload):
         self._payload = payload
+        self.is_success = True
 
     def raise_for_status(self):
         return None

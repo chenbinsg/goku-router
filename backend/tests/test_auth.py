@@ -2,13 +2,19 @@ from fastapi.testclient import TestClient
 import uuid
 
 from app.main import app
+from tests.helpers import authenticate_admin_client
 
 
-client = TestClient(app)
+client = authenticate_admin_client(TestClient(app))
 
 
-def test_models_requires_api_key():
+def test_models_catalog_is_public():
     response = client.get("/v1/models")
+    assert response.status_code == 200
+
+
+def test_admin_routes_require_jwt():
+    response = TestClient(app).get("/admin/organizations")
     assert response.status_code == 401
 
 

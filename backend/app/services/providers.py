@@ -270,15 +270,15 @@ def _execute_openai_compatible_chat_completion(
     timeout = 15.0 if getattr(provider, "host_type", "external") == "internal" else 300.0
 
     try:
-        value = payload.get("max_tokens")
+        max_tokens = payload.get("max_tokens")
+        should_trace = isinstance(max_tokens, int) and max_tokens > 1
         taskid = request.task_id or "no_taskid"
-        print("max_tokens =", repr(value), "type =", type(value))
-        if payload.get("max_tokens") > 1:
+        if should_trace:
             trace_id = str(uuid.uuid4())
             print(f"[{_log_timestamp()}] taskid:trace_id:playload----------------------------------{taskid}:{trace_id}:{payload}")
             started_at = time.perf_counter()
         response = httpx.post(url, json=payload, headers=headers, timeout=timeout)
-        if payload.get("max_tokens") > 1:
+        if should_trace:
             elapsed_seconds = time.perf_counter() - started_at
             print(f"[{_log_timestamp()}] trace_id_elapsed_seconds------------------{taskid}:{trace_id} {elapsed_seconds:.3f}s")
             print(f"[{_log_timestamp()}] {taskid}:{trace_id}:response-----------------------:{json.dumps(response.json(), ensure_ascii=False, indent=2)}")
@@ -395,9 +395,10 @@ def execute_chat_completion(
         result.latency_ms = latency_ms
 
         # Update EMA latency on the provider object (caller commits to DB) (v0.4)
-        alpha = getattr(provider, "latency_ema_alpha", 0.1)
+        alpha = getattr(provider, "latency_ema_alpha", None) or 0.1
+        previous_latency_ms = getattr(provider, "avg_latency_ms", None) or 0.0
         provider.avg_latency_ms = round(
-            alpha * latency_ms + (1 - alpha) * provider.avg_latency_ms, 2
+            alpha * latency_ms + (1 - alpha) * previous_latency_ms, 2
         )
 
         circuit_breakers.record_success(provider.name)

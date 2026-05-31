@@ -7,4 +7,6 @@ client = TestClient(app)
 def test_health():
     resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.json() == {"ok": True}
+    payload = resp.json()
+    assert payload["ok"] is True
+    assert payload["db"] == "ok"
