@@ -10,9 +10,15 @@ on:
 jobs:
   build:
     name: Build & Push
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, goku-router-ci]
 
     steps:
+      - name: Free disk space
+        run: |
+          docker image prune -af 2>/dev/null || true
+          docker builder prune -af 2>/dev/null || true
+          df -h
+
       - uses: actions/checkout@v4
 
       - name: Set up Docker Buildx

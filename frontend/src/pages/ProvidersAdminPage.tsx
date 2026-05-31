@@ -43,7 +43,7 @@ const ProvidersAdminPage: React.FC = () => {
 
   const handleToggleStatus = async (record: Provider) => {
     const newStatus = record.status === 'active' ? 'disabled' : 'active';
-    setTogglingId(record.id ?? record.providerName);
+    setTogglingId(String(record.id ?? record.providerName));
     try {
       const updated = await updateProvider({ ...record, status: newStatus });
       setProviders(cur => cur.map(p => p.id === updated.id ? updated : p));
@@ -57,7 +57,7 @@ const ProvidersAdminPage: React.FC = () => {
 
   const handleDelete = async (record: Provider) => {
     const key = record.id ?? record.providerName;
-    setDeletingId(key);
+    setDeletingId(String(key));
     try {
       await deleteProvider(String(record.id));
       setProviders(cur => cur.filter(p => p.id !== record.id));

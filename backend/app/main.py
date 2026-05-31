@@ -9,10 +9,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from . import models, schemas, crud
-from .config import get_allowed_router_api_keys
+from .config import get_allowed_router_api_keys, settings
 from .db import SessionLocal, engine
 from .services.circuit_breaker import circuit_breakers
 from .services.scheduler import start_scheduler, stop_scheduler
+from .services.secrets import SecretKeyMissing
 from .services.auth import (
     create_access_token, create_refresh_token,
     decode_access_token, decode_refresh_token,
@@ -35,9 +36,17 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+def _allowed_cors_origins() -> list[str]:
+    return [
+        origin.strip()
+        for origin in settings.allowed_origins.split(",")
+        if origin.strip()
+    ]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -118,7 +127,10 @@ def require_api_key(
     x_api_key: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ):
-    allowed_keys = get_allowed_router_api_keys()
+    try:
+        allowed_keys = get_allowed_router_api_keys()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     bearer_token = None
     if authorization and authorization.lower().startswith("bearer "):
         bearer_token = authorization[7:].strip()
@@ -133,6 +145,46 @@ def require_api_key(
             return db_key_context
 
     raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
+def _dispatch_chat_completion(
+    *,
+    request: schemas.ChatCompletionRequest,
+    db: Session,
+    api_key_context: dict,
+    enforce_quota: bool = True,
+):
+    if enforce_quota:
+        try:
+            crud._check_quota(db=db, api_key_label=api_key_context.get("label"))
+        except ValueError as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
+    try:
+        if request.stream:
+            return StreamingResponse(
+                crud.stream_chat_completion(
+                    db=db,
+                    request=request,
+                    api_key_label=api_key_context["label"],
+                    organization_id=api_key_context.get("organization_id"),
+                    project_id=api_key_context.get("project_id"),
+                    environment=api_key_context.get("environment"),
+                ),
+                media_type="text/event-stream",
+            )
+        return crud.create_chat_completion(
+            db=db,
+            request=request,
+            api_key_label=api_key_context["label"],
+            organization_id=api_key_context.get("organization_id"),
+            project_id=api_key_context.get("project_id"),
+            environment=api_key_context.get("environment"),
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if detail.startswith("INVALID_MODEL"):
+            raise HTTPException(status_code=400, detail=detail) from exc
+        raise HTTPException(status_code=503, detail=detail) from exc
 
 
 # ── Auth endpoints (/auth/*) ───────────────────────────────────────────────────
@@ -306,37 +358,32 @@ def create_chat_completion(
     db: Session = Depends(get_db),
     api_key_context: dict = Depends(require_api_key),
 ):
-    # v0.3: Enforce request/spend quotas before routing
-    try:
-        crud._check_quota(db=db, api_key_label=api_key_context.get("label"))
-    except ValueError as exc:
-        raise HTTPException(status_code=429, detail=str(exc)) from exc
-    try:
-        if request.stream:
-            return StreamingResponse(
-                crud.stream_chat_completion(
-                    db=db,
-                    request=request,
-                    api_key_label=api_key_context["label"],
-                    organization_id=api_key_context.get("organization_id"),
-                    project_id=api_key_context.get("project_id"),
-                    environment=api_key_context.get("environment"),
-                ),
-                media_type="text/event-stream",
-            )
-        return crud.create_chat_completion(
-            db=db,
-            request=request,
-            api_key_label=api_key_context["label"],
-            organization_id=api_key_context.get("organization_id"),
-            project_id=api_key_context.get("project_id"),
-            environment=api_key_context.get("environment"),
-        )
-    except ValueError as exc:
-        detail = str(exc)
-        if detail.startswith("INVALID_MODEL"):
-            raise HTTPException(status_code=400, detail=detail) from exc
-        raise HTTPException(status_code=503, detail=detail) from exc
+    return _dispatch_chat_completion(
+        request=request,
+        db=db,
+        api_key_context=api_key_context,
+        enforce_quota=True,
+    )
+
+
+@app.post("/admin/playground/chat/completions", response_model=schemas.ChatCompletionResponse)
+def admin_create_chat_completion(
+    request: schemas.ChatCompletionRequest,
+    http_request: Request,
+    db: Session = Depends(get_db),
+):
+    ctx = _admin_context(http_request)
+    return _dispatch_chat_completion(
+        request=request,
+        db=db,
+        api_key_context={
+            "label": f"admin:{ctx['username']}",
+            "organization_id": None,
+            "project_id": None,
+            "environment": "admin",
+        },
+        enforce_quota=False,
+    )
 
 @app.post("/v1/embeddings", response_model=schemas.EmbeddingResponse)
 def create_embedding(
@@ -344,6 +391,16 @@ def create_embedding(
     db: Session = Depends(get_db),
     _: None = Depends(require_api_key),
 ):
+    return crud.create_embedding(db=db, request=request)
+
+
+@app.post("/admin/playground/embeddings", response_model=schemas.EmbeddingResponse)
+def admin_create_embedding(
+    request: schemas.EmbeddingRequest,
+    http_request: Request,
+    db: Session = Depends(get_db),
+):
+    _admin_context(http_request)
     return crud.create_embedding(db=db, request=request)
 
 
@@ -378,6 +435,15 @@ def list_models(
     db: Session = Depends(get_db),
 ):
     """Public endpoint — no API key required to browse the model catalog."""
+    return crud.get_models(db=db)
+
+
+@app.get("/admin/playground/models", response_model=schemas.ModelListResponse)
+def admin_list_models(
+    http_request: Request,
+    db: Session = Depends(get_db),
+):
+    _admin_context(http_request)
     return crud.get_models(db=db)
 
 @app.get("/admin/billing/export")
@@ -778,7 +844,8 @@ def export_billing_invoice_csv(
     db: Session = Depends(get_db),
 ):
     """Download the billing invoice as a CSV file."""
-    import csv, io
+    import csv
+    import io
     invoice = crud.get_billing_invoice(db=db, org_id=org_id, month=month)
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=[
@@ -971,8 +1038,11 @@ def list_byok_keys(db: Session = Depends(get_db)):
 
 @app.post("/admin/byok", response_model=schemas.ByokKeyItem, status_code=201)
 def create_byok_key(payload: schemas.ByokKeyCreate, db: Session = Depends(get_db)):
-    """Register a new BYOK key. The raw key is stored server-side; only a preview is returned."""
-    return crud.create_byok_key(db=db, payload=payload)
+    """Register a new BYOK key. The raw key is encrypted server-side; only a preview is returned."""
+    try:
+        return crud.create_byok_key(db=db, payload=payload)
+    except SecretKeyMissing as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.put("/admin/byok/{key_id}", response_model=schemas.ByokKeyItem)

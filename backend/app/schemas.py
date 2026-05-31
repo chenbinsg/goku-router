@@ -83,6 +83,9 @@ class ChatCompletionResponse(BaseModel):
     choices: List[ChatCompletionChoice]
     usage: Usage
     # Router-specific metadata (extra fields)
+    request_id: Optional[str] = None
+    selected_model: Optional[str] = None
+    tool_calls: Optional[List[dict[str, Any]]] = None
     provider: Optional[str] = None
     fallback_used: bool = False
     cache_hit: bool = False

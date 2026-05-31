@@ -44,6 +44,8 @@ import { getAccessToken, getRefreshToken, setTokens, clearTokens, getUser } from
 
 // `?? ` (not `||`) so an explicit empty VITE_BACKEND_URL means "same origin" (Docker build).
 const BASE_URL = import.meta.env.VITE_BACKEND_URL ?? `http://localhost:${import.meta.env.VITE_BACKEND_PORT || '8159'}`;
+const FRONTEND_BASENAME = (import.meta.env.VITE_FRONTEND_BASENAME || '').replace(/\/+$/, '');
+const LOGIN_PATH = `${FRONTEND_BASENAME}/login`;
 
 const adminClient = axios.create({ baseURL: BASE_URL });
 
@@ -73,7 +75,7 @@ adminClient.interceptors.response.use(
     const refreshToken = getRefreshToken();
     if (!refreshToken) {
       clearTokens();
-      window.location.href = '/login';
+      window.location.href = LOGIN_PATH;
       return Promise.reject(error);
     }
 
@@ -102,7 +104,7 @@ adminClient.interceptors.response.use(
       // Refresh failed — reject all queued requests then redirect
       _refreshQueue = [];
       clearTokens();
-      window.location.href = '/login';
+      window.location.href = LOGIN_PATH;
       return Promise.reject(error);
     } finally {
       _refreshing = false;
