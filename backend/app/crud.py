@@ -2777,13 +2777,18 @@ def create_chat_completion(
         result.reasoning_tokens,
         result.provider_reported_cost,
     )
+    request_id = execution["request_id"]
+    selected_model = execution.get("selected_model") or request.model
     return schemas.ChatCompletionResponse(
-        id=execution["request_id"],
+        id=request_id,
         object="chat.completion",
         created=int(_time.time()),
-        model=execution.get("selected_model") or request.model,
+        model=selected_model,
         choices=[schemas.ChatCompletionChoice(index=0, message=msg, finish_reason=finish_reason)],
         usage=usage,
+        request_id=request_id,
+        selected_model=selected_model,
+        tool_calls=result.tool_calls or None,
         provider=execution["provider"],
         fallback_used=execution["fallback_used"],
         cache_hit=execution.get("cache_hit", False),

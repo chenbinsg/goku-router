@@ -6,13 +6,13 @@ from app.eval_runner import (
     build_request_payload,
     compute_baseline_deltas,
     compute_workload_winners,
-    run_policy_dry_runs,
 )
 from app.main import app
 from fastapi.testclient import TestClient
+from tests.helpers import authenticate_admin_client
 
 
-client = TestClient(app)
+client = authenticate_admin_client(TestClient(app))
 
 
 def test_build_request_payload_for_openrouter_like_auto():
@@ -130,26 +130,8 @@ def test_build_shadow_comparisons_compares_against_baseline():
 
 
 def test_run_policy_dry_runs_returns_cases_for_each_strategy():
-    dataset = {
-        "examples": [
-            {
-                "example_id": "support_1",
-                "workload_class": "chat_general",
-                "model": "model1",
-                "messages": [{"role": "user", "content": "Hello"}],
-            }
-        ],
-        "policy_dry_run_cases": [
-            {
-                "case_id": "guardrail_case",
-                "example_id": "support_1",
-                "guardrails": {
-                    "denied_providers": "provider_primary",
-                },
-            }
-        ],
-    }
     with TestClient(app) as local_client:
+        authenticate_admin_client(local_client)
         response = local_client.post(
             "/admin/guardrails/dry-run-batch",
             json={
