@@ -964,3 +964,20 @@ class ByokKeyUpdate(BaseModel):
     description: Optional[str] = None
     org_label: Optional[str] = None
     project_label: Optional[str] = None
+
+
+# ── v1.6.0: Model Stats ───────────────────────────────────────────────────────
+
+class ModelStatsResponse(BaseModel):
+    model_name: str
+    window_days: int
+    total_requests: int
+    success_rate: float        # requests with status_code < 400 / total
+    error_rate: float          # requests with status_code >= 400 / total
+    avg_latency_ms: float      # average latency in milliseconds
+    p99_latency_ms: float      # 99th percentile latency
+    fallback_rate: float       # requests where fallback_used=True / total
+    avg_cost_usd: float        # average cost per request
+    error_breakdown: dict      # {"rate_limit": N, "timeout": N, "server_error": N, "other": N}
+    providers_used: List[str]  # distinct provider names used
+    computed_at: str           # ISO timestamp
