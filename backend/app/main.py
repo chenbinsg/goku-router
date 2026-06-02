@@ -446,6 +446,20 @@ def admin_list_models(
     _admin_context(http_request)
     return crud.get_models(db=db)
 
+
+@app.get("/v1/models/{model_name:path}/stats", response_model=schemas.ModelStatsResponse)
+def get_model_stats(
+    model_name: str,
+    window_days: int = 7,
+    db: Session = Depends(get_db),
+):
+    """
+    Return real-time performance stats for a model over the last N days.
+    Used by AIOS A/B testing to enrich prompt experiment verdicts.
+    No API key required (same as /v1/models).
+    """
+    return crud.get_model_stats(db=db, model_name=model_name, window_days=window_days)
+
 @app.get("/admin/billing/export")
 def export_billing(db: Session = Depends(get_db)):
     return crud.export_billing_to_csv(db=db)

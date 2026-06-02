@@ -5311,3 +5311,116 @@ def create_image_generation(
         model=request.model,
         provider=provider_name,
     )
+
+
+# ── v1.6.0: Model Stats ───────────────────────────────────────────────────────
+
+def get_model_stats(db: Session, model_name: str, window_days: int = 7) -> dict:
+    """
+    Return real-time performance stats for a model over the last N days.
+    RequestLog has no created_at column; use id-based recency proxy (last 10 000 rows)
+    filtered by a cutoff derived from the newest row's approximate age.
+    Since we DO have PromptCacheEntry.created_at but not RequestLog.created_at,
+    we filter RequestLog by joining nothing — instead we rely on BillingRecord.date
+    to back-derive a cutoff id, falling back to a plain id-desc LIMIT when unavailable.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    cutoff_dt = datetime.now(timezone.utc) - timedelta(days=window_days)
+
+    # BillingRecord has a date column — find the minimum request_id written after
+    # the cutoff, then use it as a proxy to find the id boundary in request_logs.
+    # Simpler: query BillingRecords for matching model names and collect request_ids,
+    # then look those up in RequestLog.
+    billing_rows = (
+        db.query(models.BillingRecord)
+        .filter(
+            models.BillingRecord.model == model_name,
+            models.BillingRecord.date >= cutoff_dt,
+        )
+        .all()
+    )
+    billing_request_ids = {r.request_id for r in billing_rows}
+
+    # Primary query: RequestLog rows whose request_id appears in recent BillingRecords
+    # (covers windowed data accurately).  If billing_request_ids is empty we still
+    # run the query — it will return 0 rows which triggers the zero-stats path.
+    if billing_request_ids:
+        rows = (
+            db.query(models.RequestLog)
+            .filter(
+                models.RequestLog.requested_model == model_name,
+                models.RequestLog.request_id.in_(billing_request_ids),
+            )
+            .all()
+        )
+    else:
+        # Fallback: no billing data — use last 500 rows ordered by id desc as recency proxy
+        rows = (
+            db.query(models.RequestLog)
+            .filter(models.RequestLog.requested_model == model_name)
+            .order_by(models.RequestLog.id.desc())
+            .limit(500)
+            .all()
+        )
+
+    total = len(rows)
+    if total == 0:
+        return {
+            "model_name": model_name,
+            "window_days": window_days,
+            "total_requests": 0,
+            "success_rate": 0.0,
+            "error_rate": 0.0,
+            "avg_latency_ms": 0.0,
+            "p99_latency_ms": 0.0,
+            "fallback_rate": 0.0,
+            "avg_cost_usd": 0.0,
+            "error_breakdown": {},
+            "providers_used": [],
+            "computed_at": datetime.utcnow().isoformat(),
+        }
+
+    success = sum(1 for r in rows if r.status_code < 400)
+    errors = total - success
+    latencies = [r.latency * 1000 for r in rows if r.latency is not None]
+    costs = [r.cost_amount for r in rows if r.cost_amount is not None]
+
+    def _p99(values: list) -> float:
+        if not values:
+            return 0.0
+        s = sorted(values)
+        idx = int(len(s) * 0.99)
+        return round(s[min(idx, len(s) - 1)], 2)
+
+    breakdown: dict = {}
+    for r in rows:
+        if r.status_code >= 400:
+            code = r.error_code or ""
+            sc_str = str(r.status_code)
+            if "rate" in code.lower() or "429" in code or sc_str == "429":
+                key = "rate_limit"
+            elif "timeout" in code.lower() or "408" in code or sc_str == "408":
+                key = "timeout"
+            elif sc_str.startswith("5"):
+                key = "server_error"
+            else:
+                key = "other"
+            breakdown[key] = breakdown.get(key, 0) + 1
+
+    providers = list({r.provider_name for r in rows if r.provider_name})
+
+    return {
+        "model_name": model_name,
+        "window_days": window_days,
+        "total_requests": total,
+        "success_rate": round(success / total, 4),
+        "error_rate": round(errors / total, 4),
+        "avg_latency_ms": round(sum(latencies) / len(latencies), 2) if latencies else 0.0,
+        "p99_latency_ms": _p99(latencies),
+        "fallback_rate": round(sum(1 for r in rows if r.fallback_used) / total, 4),
+        "avg_cost_usd": round(sum(costs) / len(costs), 6) if costs else 0.0,
+        "error_breakdown": breakdown,
+        "providers_used": providers,
+        "computed_at": datetime.utcnow().isoformat(),
+    }
