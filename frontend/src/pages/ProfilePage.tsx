@@ -1,10 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import {
   Card, Form, Input, Button, Tag, Descriptions, Space,
-  message, Modal, Divider, Typography, Skeleton,
+  message, Modal, Divider, Typography, Skeleton, Select,
 } from 'antd';
-import { UserOutlined, LockOutlined, MailOutlined, SaveOutlined } from '@ant-design/icons';
-import { getMyProfile, updateMyEmail, changeMyPassword, type AdminUser } from '../api';
+import { UserOutlined, LockOutlined, MailOutlined, SaveOutlined, GlobalOutlined } from '@ant-design/icons';
+import { getMyProfile, updateMyEmail, updateMyTimezone, changeMyPassword, type AdminUser } from '../api';
+
+const COMMON_TIMEZONES = [
+  { label: 'UTC', value: 'UTC' },
+  { label: 'Asia/Tokyo (JST, UTC+9)', value: 'Asia/Tokyo' },
+  { label: 'Asia/Shanghai (CST, UTC+8)', value: 'Asia/Shanghai' },
+  { label: 'Asia/Singapore (SGT, UTC+8)', value: 'Asia/Singapore' },
+  { label: 'Asia/Seoul (KST, UTC+9)', value: 'Asia/Seoul' },
+  { label: 'America/New_York (EST/EDT)', value: 'America/New_York' },
+  { label: 'America/Los_Angeles (PST/PDT)', value: 'America/Los_Angeles' },
+  { label: 'Europe/London (GMT/BST)', value: 'Europe/London' },
+  { label: 'Europe/Paris (CET/CEST)', value: 'Europe/Paris' },
+];
 import { getUser, setTokens, getAccessToken, getRefreshToken } from '../utils/auth';
 
 const { Title, Text } = Typography;
@@ -22,6 +34,7 @@ const ProfilePage: React.FC = () => {
   const [pwForm] = Form.useForm();
   const [savingEmail, setSavingEmail] = useState(false);
   const [savingPw, setSavingPw] = useState(false);
+  const [savingTz, setSavingTz] = useState(false);
   const [pwModalOpen, setPwModalOpen] = useState(false);
 
   useEffect(() => {
@@ -54,6 +67,19 @@ const ProfilePage: React.FC = () => {
       message.error(err?.response?.data?.detail ?? '更新失败');
     } finally {
       setSavingEmail(false);
+    }
+  };
+
+  const handleTimezoneSave = async (tz: string) => {
+    setSavingTz(true);
+    try {
+      const updated = await updateMyTimezone(tz);
+      setProfile(updated);
+      message.success('时区已更新');
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail ?? '更新失败');
+    } finally {
+      setSavingTz(false);
     }
   };
 
@@ -141,6 +167,25 @@ const ProfilePage: React.FC = () => {
             </Button>
           </Form.Item>
         </Form>
+      </Card>
+
+      {/* 时区设置 */}
+      <Card title={<Space><GlobalOutlined />时区设置</Space>}>
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Typography.Text type="secondary">
+            选择你的本地时区，日志和报表时间将按此时区显示。
+            当前设置：<strong>{profile.timezone ?? 'UTC'}</strong>
+          </Typography.Text>
+          <Space>
+            <Select
+              defaultValue={profile.timezone ?? 'UTC'}
+              style={{ width: 320 }}
+              options={COMMON_TIMEZONES}
+              onChange={handleTimezoneSave}
+              loading={savingTz}
+            />
+          </Space>
+        </Space>
       </Card>
 
       {/* 修改密码 */}

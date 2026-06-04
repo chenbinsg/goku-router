@@ -2699,6 +2699,8 @@ def _execute_routed_chat_completion(
                 cache_hit=False,
                 fallback_used=index > 0,
             )
+            # Update provider health status on successful real request
+            provider.health_status = "healthy"
             db.commit()
             return {
                 "request_id": request_id,
@@ -2710,6 +2712,9 @@ def _execute_routed_chat_completion(
                 "route_trace": route_trace,
             }
         except ProviderExecutionError as exc:
+            # Update provider health status on failed real request
+            provider.health_status = "unhealthy"
+            db.commit()
             last_error = str(exc)
 
     _record_audit_log(db, "routing_failure", f"Failed to execute request for model {request.model}: {last_error}")
@@ -2979,6 +2984,8 @@ def create_provider(db: Session, provider: schemas.ProviderCreate):
     payload = provider.model_dump()
     payload["capability_tags"] = _list_to_csv(payload.pop("capabilities"))
     payload["supported_parameters"] = _list_to_csv(payload.pop("supported_parameters"))
+    # New providers are "unknown" until a test or real request confirms health
+    payload.setdefault("health_status", "unknown")
     db_provider = models.Provider(**payload)
     db.add(db_provider)
     db.commit()
@@ -3006,11 +3013,24 @@ def delete_provider(db: Session, provider_id: int):
     db_provider = db.query(models.Provider).filter(models.Provider.id == provider_id).first()
     if db_provider is None:
         raise ValueError(f"INVALID_PROVIDER: {provider_id}")
-    # Remove route rules that reference this provider to satisfy the FK constraint
-    affected_rules = db.query(models.RouteRule).filter(models.RouteRule.preferred_provider_id == provider_id).all()
+    # Remove route rules that reference this provider (preferred or backup)
+    affected_rules = db.query(models.RouteRule).filter(
+        (models.RouteRule.preferred_provider_id == provider_id) |
+        (models.RouteRule.backup_provider_id == provider_id)
+    ).all()
     for rule in affected_rules:
         db.delete(rule)
-    _record_audit_log(db, "provider_deleted", f"Deleted provider {db_provider.name} (and {len(affected_rules)} associated route rule(s))")
+    # Remove model catalog entries that reference this provider
+    affected_models = db.query(models.ModelCatalog).filter(
+        models.ModelCatalog.provider_id == provider_id
+    ).all()
+    for m in affected_models:
+        db.delete(m)
+    _record_audit_log(
+        db, "provider_deleted",
+        f"Deleted provider {db_provider.name} "
+        f"(and {len(affected_rules)} route rule(s), {len(affected_models)} model catalog entry/entries)",
+    )
     db.delete(db_provider)
     db.commit()
 
@@ -4167,7 +4187,14 @@ def test_provider_connection(
     try:
         result = execute_chat_completion(provider, model, chat_request)
     except ProviderExecutionError as exc:
+        # Mark provider unhealthy on failed connection test
+        provider.health_status = "unhealthy"
+        db.commit()
         raise ValueError(str(exc)) from exc
+
+    # Mark provider healthy on successful connection test
+    provider.health_status = "healthy"
+    db.commit()
 
     return schemas.ProviderConnectionTestResult(
         success=True,
@@ -5067,6 +5094,8 @@ def update_admin_user(db: Session, user_id: int, payload: schemas.AdminUserUpdat
         user.role = payload.role
     if payload.is_active is not None:
         user.is_active = payload.is_active
+    if payload.timezone is not None:
+        user.timezone = payload.timezone
 
     user.updated_at = datetime.now(UTC)
     db.commit()

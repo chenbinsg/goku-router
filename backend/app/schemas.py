@@ -908,6 +908,7 @@ class AdminUserItem(BaseModel):
     created_at: str
     updated_at: str
     last_login_at: Optional[str] = None
+    timezone: str = "UTC"
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -923,6 +924,12 @@ class AdminUserUpdate(BaseModel):
     email: Optional[str] = None
     role: Optional[str] = None
     is_active: Optional[bool] = None
+    timezone: Optional[str] = None
+
+
+class SystemInfoResponse(BaseModel):
+    version: str
+    server_time_utc: str
 
 
 class PasswordChangeRequest(BaseModel):

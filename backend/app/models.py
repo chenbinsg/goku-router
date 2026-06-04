@@ -16,6 +16,7 @@ class AdminUser(Base):
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=False)
     last_login_at = Column(DateTime, nullable=True)
+    timezone = Column(String(64), nullable=False, default="UTC")  # e.g. "Asia/Tokyo"
 
 
 class Organization(Base):

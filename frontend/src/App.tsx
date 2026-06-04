@@ -1,4 +1,4 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { Layout, Menu, Segmented, Space, Typography, Button, Avatar, Dropdown } from 'antd';
 import { Route, Routes, Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import {
@@ -77,6 +77,14 @@ const App: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const user = getUser();
+  const [systemVersion, setSystemVersion] = useState<string>('');
+
+  useEffect(() => {
+    fetch('/admin/system/info')
+      .then(r => r.json())
+      .then(d => setSystemVersion(d.version || ''))
+      .catch(() => {});
+  }, []);
 
   const handleLogout = () => {
     clearTokens();
@@ -265,8 +273,14 @@ const App: React.FC = () => {
           selectedKeys={[selectedKey]}
           defaultOpenKeys={openGroupKey ? [openGroupKey] : []}
           items={menuItems}
-          style={{ borderRight: 0, paddingBottom: 24 }}
+          style={{ borderRight: 0, paddingBottom: 8 }}
         />
+        {/* Version badge at bottom of sidebar */}
+        {systemVersion && (
+          <div style={{ padding: '10px 16px', borderTop: '1px solid #2a2a3e', textAlign: 'center' }}>
+            <Typography.Text style={{ color: '#888', fontSize: 11 }}>{systemVersion}</Typography.Text>
+          </div>
+        )}
       </Sider>
 
       <Layout style={{ marginLeft: 220 }}>
