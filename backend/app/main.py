@@ -1,5 +1,9 @@
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone as _tz
+from pathlib import Path
 import os
+
+UTC = _tz.utc
 
 from fastapi import FastAPI, Depends, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -62,6 +66,9 @@ async def admin_auth_middleware(request: Request, call_next):
     path = request.url.path
     # Let CORS preflight pass through — the real request that follows will be checked
     if request.method == "OPTIONS":
+        return await call_next(request)
+    # Public admin endpoints — no auth required
+    if path in ("/admin/system/info",):
         return await call_next(request)
     if path.startswith("/admin/"):
         auth_header = request.headers.get("authorization", "")
@@ -351,6 +358,22 @@ def read_health(db: Session = Depends(get_db)):
         "circuit_breakers": cb_states,
         "providers_tripped": tripped,
     }
+
+@app.get("/admin/system/info", response_model=schemas.SystemInfoResponse)
+def system_info():
+    """Return system version and current UTC time. No auth required for version display."""
+    version = "unknown"
+    try:
+        version_file = Path(__file__).parent.parent.parent / "VERSION"
+        if version_file.exists():
+            version = version_file.read_text().strip()
+    except Exception:
+        pass
+    return schemas.SystemInfoResponse(
+        version=version,
+        server_time_utc=datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC"),
+    )
+
 
 @app.post("/v1/chat/completions", response_model=schemas.ChatCompletionResponse)
 def create_chat_completion(

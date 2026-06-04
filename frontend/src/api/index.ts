@@ -1340,6 +1340,11 @@ export const updateMyEmail = async (email: string): Promise<AdminUser> => {
   return response.data;
 };
 
+export const updateMyTimezone = async (timezone: string): Promise<AdminUser> => {
+  const response = await adminClient.put('/admin/users/me', { timezone });
+  return response.data;
+};
+
 export const changeMyPassword = async (payload: {
   current_password: string;
   new_password: string;
