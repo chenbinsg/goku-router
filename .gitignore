@@ -38,3 +38,5 @@ frontend/.next/
 # IDE
 .idea/
 .vscode/
+app.db
+repo_manifest.json

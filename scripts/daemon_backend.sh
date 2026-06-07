@@ -3,7 +3,7 @@
 # Sources .env and execs uvicorn so launchd tracks the correct PID.
 set -e
 
-DIR="/Users/chenbin/router"
+DIR="/Users/chenbin/goku/router"
 
 # Load env vars
 if [ -f "$DIR/.env" ]; then
