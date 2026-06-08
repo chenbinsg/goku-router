@@ -85,8 +85,7 @@ providers = [
         "max_output_tokens": 16384,
     },
     {
-        # Remote Qwen server — INACTIVE: LAN host 192.168.x.x not reachable from this machine.
-        # Configure PROVIDER_REMOTE_QWEN_BASE_URL and set status=active only when reachable.
+        # Remote Qwen server — INACTIVE. Configure PROVIDER_REMOTE_QWEN_BASE_URL and set status=active when reachable.
         "name": "remote_qwen",
         "adapter_type": "openai_compatible",
         "status": "inactive",
