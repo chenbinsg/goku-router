@@ -1298,6 +1298,7 @@ export interface AdminUser {
   email?: string;
   role: string;
   is_active: boolean;
+  timezone?: string;
   created_at: string;
   updated_at: string;
   last_login_at?: string;
