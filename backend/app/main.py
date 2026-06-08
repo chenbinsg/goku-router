@@ -3,8 +3,6 @@ from datetime import datetime, timezone as _tz
 from pathlib import Path
 import os
 
-UTC = _tz.utc
-
 from fastapi import FastAPI, Depends, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse, FileResponse, RedirectResponse
@@ -22,6 +20,8 @@ from .services.auth import (
     create_access_token, create_refresh_token,
     decode_access_token, decode_refresh_token,
 )
+
+UTC = _tz.utc
 
 
 @asynccontextmanager
