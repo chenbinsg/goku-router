@@ -1,6 +1,6 @@
 # Eval Infrastructure
 
-This folder contains the first runnable version of the routing evaluation framework described in [Routing_Eval_Spec.md](/Users/chenbin/router/Routing_Eval_Spec.md:1).
+This folder contains the first runnable version of the routing evaluation framework described in [Routing_Eval_Spec.md](/Users/chenbin/goku/router/Routing_Eval_Spec.md:1).
 
 ## What it does
 
@@ -57,35 +57,35 @@ The finance / compliance pack covers:
 From the repo root:
 
 ```bash
-cd /Users/chenbin/router/backend
+cd /Users/chenbin/goku/router/backend
 python3 evals/run_eval.py
 ```
 
 Custom dataset:
 
 ```bash
-cd /Users/chenbin/router/backend
+cd /Users/chenbin/goku/router/backend
 python3 evals/run_eval.py --dataset evals/datasets/sample_workloads.json
 ```
 
 Customer-support flavored run:
 
 ```bash
-cd /Users/chenbin/router/backend
+cd /Users/chenbin/goku/router/backend
 python3 evals/run_eval.py --dataset evals/datasets/customer_support_pack.json
 ```
 
 Sales / ops agent run:
 
 ```bash
-cd /Users/chenbin/router/backend
+cd /Users/chenbin/goku/router/backend
 python3 evals/run_eval.py --dataset evals/datasets/sales_ops_agent_pack.json
 ```
 
 Finance / compliance run:
 
 ```bash
-cd /Users/chenbin/router/backend
+cd /Users/chenbin/goku/router/backend
 python3 evals/run_eval.py --dataset evals/datasets/finance_compliance_pack.json
 ```
 
