@@ -17,3 +17,6 @@ slowapi==0.1.9
 
 # v0.4: Background scheduling (self-evolution triggers)
 apscheduler==3.10.4
+
+# v0.5: Image generation proxy (BYOK → OpenAI images API)
+openai>=1.30.0
