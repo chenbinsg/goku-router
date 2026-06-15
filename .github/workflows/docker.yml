@@ -65,11 +65,16 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Resolve deployment image tag
+        id: deploy_tag
+        if: github.event_name != 'pull_request' && github.ref_type == 'branch'
+        run: echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
       - name: Update deployment image
         if: github.event_name != 'pull_request' && github.ref_type == 'branch'
         env:
           IMAGE_REPOSITORY: gcr.io/sre-common-test-379805/aios/goku-router
-          IMAGE_TAG: ${{ github.ref_name }}
+          IMAGE_TAG: ${{ steps.deploy_tag.outputs.tag }}
         run: |
           if [ ! -f deploy/deploy.yaml ]; then
             echo "deploy/deploy.yaml not found; skipping deployment image update."
