@@ -19,5 +19,5 @@ spec:
       containers: 
         - 
           name: "goku-router"
-          image: "275106820702.dkr.ecr.ap-northeast-1.amazonaws.com/sre/goku-router:main_1_4_7-202606051422-29dfe717"
+          image: "gcr.io/sre-common-test-379805/aios/goku-router:cicd"
 
