@@ -1,0 +1,23 @@
+---
+kind: "Deployment"
+apiVersion: "apps/v1"
+metadata: 
+  name: "goku-router"
+  namespace: "aios"
+  labels: 
+    app: "goku-router"
+spec: 
+  replicas: 0
+  selector: 
+    matchLabels: 
+      app: "goku-router"
+  template: 
+    metadata: 
+      labels: 
+        app: "goku-router"
+    spec: 
+      containers: 
+        - 
+          name: "goku-router"
+          image: "275106820702.dkr.ecr.ap-northeast-1.amazonaws.com/sre/goku-router:main_1_4_7-202606051422-29dfe717"
+
