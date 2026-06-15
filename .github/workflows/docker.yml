@@ -7,6 +7,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build & Push
@@ -61,3 +64,32 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Update deployment image
+        if: github.event_name != 'pull_request' && github.ref_type == 'branch'
+        env:
+          IMAGE_REPOSITORY: gcr.io/sre-common-test-379805/aios/goku-router
+          IMAGE_TAG: ${{ github.ref_name }}
+        run: |
+          if [ ! -f deploy/deploy.yaml ]; then
+            echo "deploy/deploy.yaml not found; skipping deployment image update."
+            exit 0
+          fi
+
+          IMAGE="${IMAGE_REPOSITORY}:${IMAGE_TAG}"
+          sed -i -E "s|^([[:space:]]*image:[[:space:]]*)\"?[^\"]*/goku-router:[^\"[:space:]]*\"?[[:space:]]*$|\1\"${IMAGE}\"|" deploy/deploy.yaml
+          git diff -- deploy/deploy.yaml
+
+      - name: Commit deployment image update
+        if: github.event_name != 'pull_request' && github.ref_type == 'branch'
+        run: |
+          if git diff --quiet -- deploy/deploy.yaml; then
+            echo "No deployment image changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add deploy/deploy.yaml
+          git commit -m "Update deployment image [skip ci]"
+          git push
