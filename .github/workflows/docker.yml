@@ -8,12 +8,27 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  # -------------------------------------------------------------------------
+  # Docker image repository configuration
+  # -------------------------------------------------------------------------
+  # The GCR repository used for both pushing the image and updating the GitOps
+  # manifest. The full repository path is stored in a GitHub Secret to avoid
+  # exposing the GCP project ID in source control.
+  # Configure it at: Settings -> Secrets and variables -> Actions
+  # Example value: gcr.io/<gcp-project>/aios/goku-router
+  # -------------------------------------------------------------------------
+  GCR_IMAGE_REPOSITORY: ${{ secrets.GCR_IMAGE_REPOSITORY }}
 
 jobs:
-  build:
-    name: Build & Push
+  build-and-push:
+    name: Build & Push Docker Image
     runs-on: [self-hosted, Linux, X64, goku-router-ci]
+
+    outputs:
+      image_tag: ${{ steps.deploy_tag.outputs.tag }}
 
     steps:
       - name: Free disk space
@@ -26,13 +41,6 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Docker Hub
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Log in to GCR
         if: github.event_name != 'pull_request'
@@ -47,54 +55,110 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/goku-router
-            gcr.io/sre-common-test-379805/aios/goku-router
+            ${{ env.GCR_IMAGE_REPOSITORY }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=ref,event=branch
             type=sha,prefix=sha-,format=short
 
+      - name: Resolve deployment image tag
+        id: deploy_tag
+        if: github.event_name != 'pull_request' && github.ref_type == 'branch'
+        run: |
+          TIMESTAMP="$(date -u +'%Y%m%d-%H%M')"
+          echo "tag=${GITHUB_REF_NAME}-${TIMESTAMP}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare image tags
+        id: tags
+        env:
+          META_TAGS: ${{ steps.meta.outputs.tags }}
+          DEPLOY_TAG: ${{ steps.deploy_tag.outputs.tag }}
+        run: |
+          if [ -n "${DEPLOY_TAG}" ]; then
+            {
+              echo "value<<EOF"
+              echo "${META_TAGS}"
+              echo "${GCR_IMAGE_REPOSITORY}:${DEPLOY_TAG}"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${META_TAGS}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ steps.tags.outputs.value }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Resolve deployment image tag
-        id: deploy_tag
-        if: github.event_name != 'pull_request' && github.ref_type == 'branch'
-        run: echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+  update-gitops:
+    name: Update GitOps Manifest
+    runs-on: [self-hosted, Linux, X64, goku-router-ci]
+    needs: build-and-push
+    if: github.event_name != 'pull_request' && github.ref_type == 'branch'
+
+    env:
+      # -----------------------------------------------------------------------
+      # GitOps manifest target configuration
+      # -----------------------------------------------------------------------
+      # When reusing this workflow for another project, update the three values
+      # below to match the target application and manifest path.
+      #
+      # GITOPS_APP_NAME  : Logical application name, used in the commit message.
+      # GITOPS_YAML_REPO : External GitOps repository (org/repo format).
+      # GITOPS_YAML_FILE : Path inside the GitOps repo to the Deployment yaml.
+      # -----------------------------------------------------------------------
+      GITOPS_APP_NAME: router
+      GITOPS_YAML_REPO: xuyun-io/argocd-yaml
+      GITOPS_YAML_FILE: aios/qa/router.yaml
+
+    steps:
+      - name: Checkout gitops manifests
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.GITOPS_YAML_REPO }}
+          path: gitops-yaml
+          token: ${{ secrets.GITOPS_YAML_GITHUB_TOKEN }}
 
       - name: Update deployment image
-        if: github.event_name != 'pull_request' && github.ref_type == 'branch'
         env:
-          IMAGE_REPOSITORY: gcr.io/sre-common-test-379805/aios/goku-router
-          IMAGE_TAG: ${{ steps.deploy_tag.outputs.tag }}
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
         run: |
-          if [ ! -f deploy/deploy.yaml ]; then
-            echo "deploy/deploy.yaml not found; skipping deployment image update."
+          FILE="gitops-yaml/${{ env.GITOPS_YAML_FILE }}"
+          if [ ! -f "$FILE" ]; then
+            echo "$FILE not found; skipping deployment image update."
             exit 0
           fi
 
-          IMAGE="${IMAGE_REPOSITORY}:${IMAGE_TAG}"
-          sed -i -E "s|^([[:space:]]*image:[[:space:]]*)\"?[^\"]*/goku-router:[^\"[:space:]]*\"?[[:space:]]*$|\1\"${IMAGE}\"|" deploy/deploy.yaml
-          git diff -- deploy/deploy.yaml
+          IMAGE="${{ env.GCR_IMAGE_REPOSITORY }}:${IMAGE_TAG}"
+          sed -i -E '0,/^([[:space:]]*image:[[:space:]]*)"?[^"]*"?[[:space:]]*$/s||\1"'"${IMAGE}"'"|' "$FILE"
+          git -C gitops-yaml diff -- "${{ env.GITOPS_YAML_FILE }}"
 
       - name: Commit deployment image update
-        if: github.event_name != 'pull_request' && github.ref_type == 'branch'
+        env:
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+          SOURCE_COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
-          if git diff --quiet -- deploy/deploy.yaml; then
+          cd gitops-yaml
+          if git diff --quiet; then
             echo "No deployment image changes to commit."
             exit 0
           fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add deploy/deploy.yaml
-          git commit -m "Update deployment image [skip ci]"
+          git add "${{ env.GITOPS_YAML_FILE }}"
+          TIMESTAMP="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          SOURCE_COMMIT="$(echo '${{ github.sha }}' | cut -c1-7)"
+          git commit \
+            -m "[${{ github.repository }}/${{ github.ref_name }}@${SOURCE_COMMIT}](${{ github.actor }}): Update ${{ env.GITOPS_APP_NAME }} image to ${IMAGE_TAG}" \
+            -m "Time: ${TIMESTAMP}" \
+            -m "Source commit message:" \
+            -m "${SOURCE_COMMIT_MSG}" \
+            -m "[skip ci]"
           git push
