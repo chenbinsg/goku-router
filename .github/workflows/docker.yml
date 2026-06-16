@@ -64,10 +64,14 @@ jobs:
 
       - name: Resolve deployment image tag
         id: deploy_tag
-        if: github.event_name != 'pull_request' && github.ref_type == 'branch'
+        if: github.event_name != 'pull_request'
         run: |
-          TIMESTAMP="$(date -u +'%Y%m%d-%H%M')"
-          echo "tag=${GITHUB_REF_NAME}-${TIMESTAMP}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            TIMESTAMP="$(date -u +'%Y%m%d-%H%M')"
+            echo "tag=${GITHUB_REF_NAME}-${TIMESTAMP}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Prepare image tags
         id: tags
@@ -100,22 +104,24 @@ jobs:
     name: Update GitOps Manifest
     runs-on: [self-hosted, Linux, X64, goku-router-ci]
     needs: build-and-push
-    if: github.event_name != 'pull_request' && github.ref_type == 'branch'
+    if: github.event_name != 'pull_request' && (github.ref_type == 'branch' || github.ref_type == 'tag')
 
     env:
       # -----------------------------------------------------------------------
       # GitOps manifest target configuration
       # -----------------------------------------------------------------------
-      # When reusing this workflow for another project, update the three values
+      # When reusing this workflow for another project, update the values
       # below to match the target application and manifest path.
       #
       # GITOPS_APP_NAME  : Logical application name, used in the commit message.
       # GITOPS_YAML_REPO : External GitOps repository (org/repo format).
-      # GITOPS_YAML_FILE : Path inside the GitOps repo to the Deployment yaml.
+      # GITOPS_QA_YAML_FILE   : QA Deployment yaml, updated by branch builds.
+      # GITOPS_PROD_YAML_FILE : PROD Deployment yaml, updated by tag releases.
       # -----------------------------------------------------------------------
       GITOPS_APP_NAME: router
       GITOPS_YAML_REPO: xuyun-io/argocd-yaml
-      GITOPS_YAML_FILE: aios/qa/router.yaml
+      GITOPS_QA_YAML_FILE: aios/qa/router.yaml
+      GITOPS_PROD_YAML_FILE: aios/prod/router.yaml
 
     steps:
       - name: Checkout gitops manifests
@@ -129,7 +135,13 @@ jobs:
         env:
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
         run: |
-          FILE="gitops-yaml/${{ env.GITOPS_YAML_FILE }}"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            GITOPS_YAML_FILE="${{ env.GITOPS_PROD_YAML_FILE }}"
+          else
+            GITOPS_YAML_FILE="${{ env.GITOPS_QA_YAML_FILE }}"
+          fi
+
+          FILE="gitops-yaml/${GITOPS_YAML_FILE}"
           if [ ! -f "$FILE" ]; then
             echo "$FILE not found; skipping deployment image update."
             exit 0
@@ -137,7 +149,7 @@ jobs:
 
           IMAGE="${{ env.GCR_IMAGE_REPOSITORY }}:${IMAGE_TAG}"
           sed -i -E '0,/^([[:space:]]*image:[[:space:]]*)"?[^"]*"?[[:space:]]*$/s||\1"'"${IMAGE}"'"|' "$FILE"
-          git -C gitops-yaml diff -- "${{ env.GITOPS_YAML_FILE }}"
+          git -C gitops-yaml diff -- "${GITOPS_YAML_FILE}"
 
       - name: Commit deployment image update
         env:
@@ -150,13 +162,21 @@ jobs:
             exit 0
           fi
 
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            GITOPS_ENV="prod"
+            GITOPS_YAML_FILE="${{ env.GITOPS_PROD_YAML_FILE }}"
+          else
+            GITOPS_ENV="qa"
+            GITOPS_YAML_FILE="${{ env.GITOPS_QA_YAML_FILE }}"
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "${{ env.GITOPS_YAML_FILE }}"
+          git add "${GITOPS_YAML_FILE}"
           TIMESTAMP="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
           SOURCE_COMMIT="$(echo '${{ github.sha }}' | cut -c1-7)"
           git commit \
-            -m "[${{ github.repository }}/${{ github.ref_name }}@${SOURCE_COMMIT}](${{ github.actor }}): Update ${{ env.GITOPS_APP_NAME }} image to ${IMAGE_TAG}" \
+            -m "[${{ github.repository }}/${{ github.ref_name }}@${SOURCE_COMMIT}](${{ github.actor }}): Update ${{ env.GITOPS_APP_NAME }} ${GITOPS_ENV} image to ${IMAGE_TAG}" \
             -m "Time: ${TIMESTAMP}" \
             -m "Source commit message:" \
             -m "${SOURCE_COMMIT_MSG}" \
