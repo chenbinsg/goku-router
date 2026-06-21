@@ -4207,6 +4207,181 @@ def test_provider_connection(
     )
 
 
+def _select_quality_eval_target(
+    db: Session,
+    payload: schemas.QualityEvalRequest,
+) -> tuple[models.Provider, models.ModelCatalog]:
+    query = (
+        db.query(models.ModelCatalog, models.Provider)
+        .join(models.Provider, models.Provider.id == models.ModelCatalog.provider_id)
+        .filter(
+            models.ModelCatalog.model_id == payload.model_id,
+            models.ModelCatalog.status == "active",
+            models.Provider.status == "active",
+        )
+    )
+    if payload.provider_id is not None:
+        query = query.filter(models.Provider.id == payload.provider_id)
+    row = query.order_by(models.Provider.priority.asc(), models.Provider.id.asc()).first()
+    if row is None:
+        target = f"model={payload.model_id}"
+        if payload.provider_id is not None:
+            target += f" provider_id={payload.provider_id}"
+        raise ValueError(f"QUALITY_EVAL_TARGET_NOT_FOUND: {target}")
+    model_mapping, provider = row
+    return provider, model_mapping
+
+
+def _quality_eval_json_valid(result: ProviderResult, completion: str) -> bool:
+    if result.structured_output is not None:
+        return True
+    try:
+        json.loads(completion)
+        return True
+    except (json.JSONDecodeError, TypeError):
+        return False
+
+
+def _score_quality_eval_case(
+    case: schemas.QualityEvalCase,
+    result: ProviderResult,
+    provider: models.Provider,
+) -> tuple[float, dict[str, Any]]:
+    completion = result.completion or ""
+    completion_lower = completion.lower()
+    expected_terms = [term for term in case.expected_contains if term]
+    forbidden_terms = [term for term in case.must_not_contain if term]
+    matched_terms = [term for term in expected_terms if term.lower() in completion_lower]
+    missing_terms = [term for term in expected_terms if term.lower() not in completion_lower]
+    forbidden_hits = [term for term in forbidden_terms if term.lower() in completion_lower]
+
+    content_score = len(matched_terms) / len(expected_terms) if expected_terms else 1.0
+    safety_score = 0.0 if forbidden_hits else 1.0
+    json_valid = None
+    if case.require_json or case.response_format is not None:
+        json_valid = _quality_eval_json_valid(result, completion)
+    format_score = 1.0 if json_valid is not False else 0.0
+    tool_success = None
+    if case.tools:
+        tool_success = bool(result.tool_calls)
+    tool_score = 1.0 if tool_success is not False else 0.0
+    latency_score = 1.0
+    if case.max_latency_ms is not None:
+        latency_score = max(0.0, 1.0 - (result.latency_ms / max(case.max_latency_ms, 1.0)))
+    billable_prompt_tokens = max(result.prompt_tokens - result.cached_tokens, 0)
+    cost_usd = round(
+        (billable_prompt_tokens / 1000) * provider.input_cost_per_1k
+        + (result.completion_tokens / 1000) * provider.output_cost_per_1k,
+        6,
+    )
+    cost_score = 1.0
+    if case.max_cost_usd is not None:
+        cost_score = max(0.0, 1.0 - (cost_usd / max(case.max_cost_usd, 0.000001)))
+
+    score = (
+        0.4 * content_score
+        + 0.2 * format_score
+        + 0.15 * safety_score
+        + 0.1 * tool_score
+        + 0.1 * latency_score
+        + 0.05 * cost_score
+    )
+    return round(score, 4), {
+        "matched_terms": matched_terms,
+        "missing_terms": missing_terms,
+        "forbidden_hits": forbidden_hits,
+        "json_valid": json_valid,
+        "tool_success": tool_success,
+        "cost_usd": cost_usd,
+    }
+
+
+def run_quality_eval(
+    db: Session,
+    payload: schemas.QualityEvalRequest,
+) -> schemas.QualityEvalResponse:
+    seed_demo_data(db)
+    if not payload.cases:
+        raise ValueError("QUALITY_EVAL_REQUIRES_CASES")
+    provider, model_mapping = _select_quality_eval_target(db, payload)
+    results: list[schemas.QualityEvalCaseResult] = []
+    total_weight = sum(max(case.weight, 0.0) for case in payload.cases) or 1.0
+    weighted_score = 0.0
+
+    for case in payload.cases:
+        messages: list[schemas.ChatMessage] = []
+        if case.system_prompt:
+            messages.append(schemas.ChatMessage(role="system", content=case.system_prompt))
+        messages.append(schemas.ChatMessage(role="user", content=case.prompt))
+        chat_request = schemas.ChatCompletionRequest(
+            model=payload.model_id,
+            messages=messages,
+            temperature=payload.temperature,
+            max_tokens=payload.max_tokens,
+            tools=case.tools,
+            response_format=case.response_format,
+        )
+        try:
+            result = execute_chat_completion(provider, model_mapping, chat_request)
+            score, details = _score_quality_eval_case(case, result, provider)
+            weighted_score += score * max(case.weight, 0.0)
+            results.append(
+                schemas.QualityEvalCaseResult(
+                    case_id=case.case_id,
+                    success=score >= 0.75,
+                    score=score,
+                    provider_name=provider.name,
+                    model_id=model_mapping.model_id,
+                    provider_model_name=model_mapping.provider_model_name,
+                    completion=result.completion,
+                    matched_terms=details["matched_terms"],
+                    missing_terms=details["missing_terms"],
+                    forbidden_hits=details["forbidden_hits"],
+                    json_valid=details["json_valid"],
+                    tool_success=details["tool_success"],
+                    latency_ms=round(result.latency_ms, 2),
+                    cost_usd=details["cost_usd"],
+                    prompt_tokens=result.prompt_tokens,
+                    completion_tokens=result.completion_tokens,
+                )
+            )
+        except ProviderExecutionError as exc:
+            results.append(
+                schemas.QualityEvalCaseResult(
+                    case_id=case.case_id,
+                    success=False,
+                    score=0.0,
+                    provider_name=provider.name,
+                    model_id=model_mapping.model_id,
+                    provider_model_name=model_mapping.provider_model_name,
+                    completion="",
+                    error=str(exc),
+                )
+            )
+
+    passed_cases = sum(1 for item in results if item.success)
+    total_cost = round(sum(item.cost_usd for item in results), 6)
+    average_latency = round(sum(item.latency_ms for item in results) / len(results), 2)
+    average_score = round(weighted_score / total_weight, 4)
+    _record_audit_log(
+        db,
+        "quality_eval_run",
+        f"Ran quality eval {payload.name} for {provider.name}/{model_mapping.model_id}: score={average_score}",
+    )
+    db.commit()
+    return schemas.QualityEvalResponse(
+        name=payload.name,
+        model_id=payload.model_id,
+        provider_name=provider.name,
+        total_cases=len(results),
+        passed_cases=passed_cases,
+        average_score=average_score,
+        total_cost_usd=total_cost,
+        average_latency_ms=average_latency,
+        results=results,
+    )
+
+
 # ── Feedback recording (v0.7 foundation) ──────────────────────────────────────
 
 def record_request_feedback(db: Session, payload: schemas.FeedbackRequest) -> dict:

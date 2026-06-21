@@ -210,6 +210,61 @@ export interface ProviderConnectionTestResult {
   message: string;
 }
 
+export interface QualityEvalCase {
+  caseId: string;
+  prompt: string;
+  systemPrompt?: string;
+  expectedContains?: string[];
+  mustNotContain?: string[];
+  requireJson?: boolean;
+  tools?: Array<{ type: string; function: Record<string, any> }>;
+  responseFormat?: { type: string; jsonSchema?: Record<string, any> };
+  maxLatencyMs?: number;
+  maxCostUsd?: number;
+  weight?: number;
+}
+
+export interface QualityEvalRequestPayload {
+  name: string;
+  modelId: string;
+  providerId?: number;
+  temperature?: number;
+  maxTokens?: number;
+  cases: QualityEvalCase[];
+}
+
+export interface QualityEvalCaseResult {
+  caseId: string;
+  success: boolean;
+  score: number;
+  providerName: string;
+  modelId: string;
+  providerModelName: string;
+  completion: string;
+  matchedTerms: string[];
+  missingTerms: string[];
+  forbiddenHits: string[];
+  jsonValid?: boolean;
+  toolSuccess?: boolean;
+  latencyMs: number;
+  costUsd: number;
+  promptTokens: number;
+  completionTokens: number;
+  error?: string;
+}
+
+export interface QualityEvalResponse {
+  name: string;
+  modelId: string;
+  providerName?: string;
+  totalCases: number;
+  passedCases: number;
+  averageScore: number;
+  totalCostUsd: number;
+  averageLatencyMs: number;
+  results: QualityEvalCaseResult[];
+}
+
 export interface RouterApiKey {
   id: number;
   name: string;

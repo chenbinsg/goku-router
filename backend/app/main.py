@@ -538,6 +538,20 @@ def test_provider_connection(
         raise HTTPException(status_code=400, detail=detail) from exc
 
 
+@app.post("/admin/quality-evals/run", response_model=schemas.QualityEvalResponse)
+def run_quality_eval(
+    request: schemas.QualityEvalRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return crud.run_quality_eval(db=db, payload=request)
+    except ValueError as exc:
+        detail = str(exc)
+        if detail.startswith("QUALITY_EVAL_TARGET_NOT_FOUND"):
+            raise HTTPException(status_code=404, detail=detail) from exc
+        raise HTTPException(status_code=400, detail=detail) from exc
+
+
 @app.get("/admin/models", response_model=list[schemas.ModelCatalogItem])
 def list_model_catalog(db: Session = Depends(get_db)):
     return crud.list_model_catalog(db=db)

@@ -20,6 +20,7 @@ import {
   TeamOutlined,
   LockOutlined,
   ProfileOutlined,
+  ExperimentOutlined,
 } from '@ant-design/icons';
 import { useI18n } from './i18n';
 import { isAuthenticated, getUser, clearTokens } from './utils/auth';
@@ -32,6 +33,7 @@ const ModelsListPage         = lazy(() => import('./pages/ModelsListPage'));
 const ModelsAdminPage        = lazy(() => import('./pages/ModelsAdminPage'));
 const ProvidersAdminPage     = lazy(() => import('./pages/ProvidersAdminPage'));
 const RoutingAdminPage       = lazy(() => import('./pages/RoutingAdminPage'));
+const QualityEvalPage        = lazy(() => import('./pages/QualityEvalPage'));
 const ByokAdminPage          = lazy(() => import('./pages/ByokAdminPage'));
 const CreditsAdminPage       = lazy(() => import('./pages/CreditsAdminPage'));
 const BillingAdminPage       = lazy(() => import('./pages/BillingAdminPage'));
@@ -61,6 +63,7 @@ const PATH_TO_KEY: Record<string, [string, string]> = {
   '/admin/models':        ['models',     'grp-routing'],
   '/admin/providers':     ['providers',  'grp-routing'],
   '/admin/routing':       ['routing',    'grp-routing'],
+  '/admin/quality-evals': ['quality-evals','grp-routing'],
   '/admin/api-keys':      ['api-keys',   'grp-access'],
   '/admin/byok':          ['byok',       'grp-access'],
   '/admin/security':      ['security',   'grp-access'],
@@ -187,6 +190,11 @@ const App: React.FC = () => {
           key: 'routing',
           icon: <BranchesOutlined />,
           label: <Link to="/admin/routing">{t('nav.routingAdmin')}</Link>,
+        },
+        {
+          key: 'quality-evals',
+          icon: <ExperimentOutlined />,
+          label: <Link to="/admin/quality-evals">质量评估</Link>,
         },
       ],
     },
@@ -317,6 +325,7 @@ const App: React.FC = () => {
               <Route path="/admin/models"         element={<RequireAuth><ModelsAdminPage /></RequireAuth>} />
               <Route path="/admin/providers"      element={<RequireAuth><ProvidersAdminPage /></RequireAuth>} />
               <Route path="/admin/routing"        element={<RequireAuth><RoutingAdminPage /></RequireAuth>} />
+              <Route path="/admin/quality-evals"  element={<RequireAuth><QualityEvalPage /></RequireAuth>} />
               <Route path="/admin/api-keys"       element={<RequireAuth><ApiKeysAdminPage /></RequireAuth>} />
               <Route path="/admin/byok"           element={<RequireAuth><ByokAdminPage /></RequireAuth>} />
               <Route path="/admin/security"       element={<RequireAuth><SecurityAdminPage /></RequireAuth>} />

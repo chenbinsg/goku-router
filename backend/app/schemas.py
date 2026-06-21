@@ -280,6 +280,61 @@ class ProviderConnectionTestResult(BaseModel):
     message: str
 
 
+class QualityEvalCase(BaseModel):
+    case_id: str
+    prompt: str
+    system_prompt: Optional[str] = None
+    expected_contains: List[str] = []
+    must_not_contain: List[str] = []
+    require_json: bool = False
+    tools: Optional[List[ToolDefinition]] = None
+    response_format: Optional[ResponseFormat] = None
+    max_latency_ms: Optional[float] = None
+    max_cost_usd: Optional[float] = None
+    weight: float = 1.0
+
+
+class QualityEvalRequest(BaseModel):
+    name: str = "manual_quality_eval"
+    model_id: str
+    provider_id: Optional[int] = None
+    temperature: Optional[float] = 0.0
+    max_tokens: Optional[int] = 512
+    cases: List[QualityEvalCase]
+
+
+class QualityEvalCaseResult(BaseModel):
+    case_id: str
+    success: bool
+    score: float
+    provider_name: str
+    model_id: str
+    provider_model_name: str
+    completion: str
+    matched_terms: List[str] = []
+    missing_terms: List[str] = []
+    forbidden_hits: List[str] = []
+    json_valid: Optional[bool] = None
+    tool_success: Optional[bool] = None
+    latency_ms: float = 0.0
+    cost_usd: float = 0.0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    error: Optional[str] = None
+
+
+class QualityEvalResponse(BaseModel):
+    name: str
+    model_id: str
+    provider_name: Optional[str] = None
+    total_cases: int
+    passed_cases: int
+    average_score: float
+    total_cost_usd: float
+    average_latency_ms: float
+    results: List[QualityEvalCaseResult]
+
+
 class RouterApiKeyItem(BaseModel):
     id: int
     name: str

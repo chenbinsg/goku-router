@@ -36,6 +36,8 @@ import type {
   RouteScoringExperiment,
   RouteScoringRecalibrationResult,
   RouteScoringTrainResult,
+  QualityEvalRequestPayload,
+  QualityEvalResponse,
 } from '../types';
 
 export { createChatCompletion, createChatCompletionStream, createEmbedding, listModels, exportBilling };
@@ -391,6 +393,63 @@ export const updateModel = async (model: Model): Promise<Model> => {
 
 export const deleteModel = async (modelId: number): Promise<void> => {
   await adminClient.delete(`/admin/models/${modelId}`);
+};
+
+export const runQualityEval = async (payload: QualityEvalRequestPayload): Promise<QualityEvalResponse> => {
+  const response = await adminClient.post('/admin/quality-evals/run', {
+    name: payload.name,
+    model_id: payload.modelId,
+    provider_id: payload.providerId,
+    temperature: payload.temperature,
+    max_tokens: payload.maxTokens,
+    cases: payload.cases.map((item) => ({
+      case_id: item.caseId,
+      prompt: item.prompt,
+      system_prompt: item.systemPrompt,
+      expected_contains: item.expectedContains || [],
+      must_not_contain: item.mustNotContain || [],
+      require_json: item.requireJson || false,
+      tools: item.tools,
+      response_format: item.responseFormat
+        ? {
+            type: item.responseFormat.type,
+            json_schema: item.responseFormat.jsonSchema,
+          }
+        : undefined,
+      max_latency_ms: item.maxLatencyMs,
+      max_cost_usd: item.maxCostUsd,
+      weight: item.weight ?? 1,
+    })),
+  });
+  return {
+    name: response.data.name,
+    modelId: response.data.model_id,
+    providerName: response.data.provider_name,
+    totalCases: response.data.total_cases,
+    passedCases: response.data.passed_cases,
+    averageScore: response.data.average_score,
+    totalCostUsd: response.data.total_cost_usd,
+    averageLatencyMs: response.data.average_latency_ms,
+    results: response.data.results.map((item: any) => ({
+      caseId: item.case_id,
+      success: item.success,
+      score: item.score,
+      providerName: item.provider_name,
+      modelId: item.model_id,
+      providerModelName: item.provider_model_name,
+      completion: item.completion,
+      matchedTerms: item.matched_terms || [],
+      missingTerms: item.missing_terms || [],
+      forbiddenHits: item.forbidden_hits || [],
+      jsonValid: item.json_valid,
+      toolSuccess: item.tool_success,
+      latencyMs: item.latency_ms,
+      costUsd: item.cost_usd,
+      promptTokens: item.prompt_tokens,
+      completionTokens: item.completion_tokens,
+      error: item.error,
+    })),
+  };
 };
 
 export const getProviders = async (): Promise<Provider[]> => {
