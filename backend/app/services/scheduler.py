@@ -11,6 +11,7 @@ Start via start_scheduler() called from app lifespan.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, UTC, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -296,26 +297,35 @@ def start_scheduler():
         replace_existing=True,
     )
 
-    # Drift monitor + provider quality scores: every 6 hours  (v1.3.0)
-    _scheduler.add_job(
-        drift_monitor_job,
-        IntervalTrigger(hours=6),
-        id="drift_monitor",
-        replace_existing=True,
-    )
+    # Auto-optimizer (drift monitor + auto A/B experiments). Disabled by default:
+    # it optimizes purely on cost/latency/quality metrics with no answer-quality
+    # signal, so it can auto-launch cost-heavy experiments that degrade behaviour
+    # (e.g. routing all traffic to cheap/unstable providers). Re-enable explicitly
+    # by setting ROUTER_AUTO_OPTIMIZE=true.
+    _auto_optimize = os.environ.get("ROUTER_AUTO_OPTIMIZE", "false").lower() in ("1", "true", "yes")
+    if _auto_optimize:
+        # Drift monitor + provider quality scores: every 6 hours  (v1.3.0)
+        _scheduler.add_job(
+            drift_monitor_job,
+            IntervalTrigger(hours=6),
+            id="drift_monitor",
+            replace_existing=True,
+        )
 
-    # A/B significance check: nightly at 03:00 UTC  (v1.3.0)
-    _scheduler.add_job(
-        ab_significance_check_job,
-        CronTrigger(hour=3, minute=0),
-        id="ab_significance_check",
-        replace_existing=True,
-    )
+        # A/B significance check: nightly at 03:00 UTC  (v1.3.0)
+        _scheduler.add_job(
+            ab_significance_check_job,
+            CronTrigger(hour=3, minute=0),
+            id="ab_significance_check",
+            replace_existing=True,
+        )
 
     _scheduler.start()
     logger.info(
-        "Background scheduler started (5 jobs: billing_rollup, log_retention, "
-        "anomaly_sweep, drift_monitor, ab_significance_check)"
+        "Background scheduler started (auto_optimize=%s; jobs: billing_rollup, "
+        "log_retention, anomaly_sweep%s)",
+        _auto_optimize,
+        ", drift_monitor, ab_significance_check" if _auto_optimize else "",
     )
 
 
