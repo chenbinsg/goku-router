@@ -277,7 +277,7 @@ def _execute_openai_compatible_chat_completion(
         "Content-Type": "application/json",
     }
 
-    # Determine timeout: internal providers use shorter timeout; large remote models need more time
+    # Determine timeout: internal providers use shorter timeout; large remote models need more time 
     # external default raised to 300 s — 35B models (Qwen3.6) may take 3–4 min for long outputs
     timeout = 15.0 if getattr(provider, "host_type", "external") == "internal" else 300.0
 
