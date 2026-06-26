@@ -221,6 +221,18 @@ def _execute_mock_chat_completion(
 # ── OpenAI-compatible adapter (covers vLLM, Ollama, OpenAI, DeepSeek, etc.) ───
 def _log_timestamp() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
+
+def _emit_call_log(record: dict[str, Any]) -> None:
+    """Emit one single-line JSON trace record to stdout for log-based analytics.
+
+    Single line on purpose: the k8s log collector ingests one record per line, so a
+    multi-line (pretty-printed) payload would be split into many fragmented entries.
+    """
+    # flush=True is required: in a container, stdout is block-buffered (not line-
+    # buffered), so without flushing these lines sit in the buffer and appear late
+    # or get lost on crash — while uvicorn's own logs (which flush) show normally.
+    print(f"[{_log_timestamp()}] llm_trace {json.dumps(record, ensure_ascii=False, default=str)}", flush=True)
 def _execute_openai_compatible_chat_completion(
     provider: Provider,
     model: ModelCatalog,
@@ -265,39 +277,68 @@ def _execute_openai_compatible_chat_completion(
         "Content-Type": "application/json",
     }
 
-    # Determine timeout: internal providers use shorter timeout; large remote models need more time
+    # Determine timeout: internal providers use shorter timeout; large remote models need more time 
     # external default raised to 300 s — 35B models (Qwen3.6) may take 3–4 min for long outputs
     timeout = 15.0 if getattr(provider, "host_type", "external") == "internal" else 300.0
 
+    taskid = request.task_id or "no_taskid"
+    trace_id = str(uuid.uuid4())
+    request_bytes = len(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+    num_messages = len(request.messages)
+
+    # Full request payload — DEBUG only (off by default; may contain prompt content).
+    # Guarded so json.dumps doesn't run on the hot path when DEBUG is disabled.
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("llm_request task=%s trace=%s payload=%s",
+                     taskid, trace_id, json.dumps(payload, ensure_ascii=False))
+
+    started_at = time.perf_counter()
     try:
-        max_tokens = payload.get("max_tokens")
-        should_trace = isinstance(max_tokens, int) and max_tokens > 1
-        taskid = request.task_id or "no_taskid"
-        if should_trace:
-            trace_id = str(uuid.uuid4())
-            print(f"[{_log_timestamp()}] taskid:trace_id:playload----------------------------------{taskid}:{trace_id}:{payload}")
-            started_at = time.perf_counter()
         response = httpx.post(url, json=payload, headers=headers, timeout=timeout)
-        if should_trace:
-            elapsed_seconds = time.perf_counter() - started_at
-            print(f"[{_log_timestamp()}] trace_id_elapsed_seconds------------------{taskid}:{trace_id} {elapsed_seconds:.3f}s")
-            print(f"[{_log_timestamp()}] {taskid}:{trace_id}:response-----------------------:{json.dumps(response.json(), ensure_ascii=False, indent=2)}")
-        if not response.is_success:
-            # Log the full response body so we can diagnose 400/422 errors from vLLM
-            try:
-                body_preview = response.text[:500]
-            except Exception:
-                body_preview = "<unreadable>"
-            import logging as _log
-            _log.getLogger(__name__).warning(
-                "Provider %s returned HTTP %s — body: %s",
-                provider.name, response.status_code, body_preview,
-            )
-        response.raise_for_status()
     except httpx.HTTPError as exc:
+        # Transport-level failure (timeout, connection refused, DNS, etc.)
+        elapsed_ms = round((time.perf_counter() - started_at) * 1000, 1)
+        _emit_call_log({
+            "evt": "llm_call", "ok": False, "task_id": taskid, "trace_id": trace_id,
+            "provider": provider.name, "model": model.provider_model_name,
+            "error_type": type(exc).__name__, "error": str(exc),
+            "latency_ms": elapsed_ms, "req_msgs": num_messages, "req_bytes": request_bytes,
+        })
         raise ProviderExecutionError(
             f"Provider {provider.name} request failed: {exc}"
         ) from exc
+
+    elapsed_ms = round((time.perf_counter() - started_at) * 1000, 1)
+    response_bytes = len(response.content)
+
+    # Full response body — DEBUG only.
+    if logger.isEnabledFor(logging.DEBUG):
+        try:
+            body_debug = json.dumps(response.json(), ensure_ascii=False)
+        except Exception:
+            body_debug = response.text
+        logger.debug("llm_response task=%s trace=%s body=%s", taskid, trace_id, body_debug)
+
+    if not response.is_success:
+        # HTTP-level failure (4xx/5xx) — log status, body, size and time spent.
+        try:
+            body_preview = response.text[:500]
+        except Exception:
+            body_preview = "<unreadable>"
+        _emit_call_log({
+            "evt": "llm_call", "ok": False, "task_id": taskid, "trace_id": trace_id,
+            "provider": provider.name, "model": model.provider_model_name,
+            "status": response.status_code, "error_type": "HTTPStatusError",
+            "error": f"HTTP {response.status_code}", "body_preview": body_preview,
+            "latency_ms": elapsed_ms, "req_msgs": num_messages,
+            "req_bytes": request_bytes, "resp_bytes": response_bytes,
+        })
+        try:
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise ProviderExecutionError(
+                f"Provider {provider.name} request failed: {exc}"
+            ) from exc
 
     data = response.json()
     choices = data.get("choices") or []
@@ -306,6 +347,7 @@ def _execute_openai_compatible_chat_completion(
             f"Provider {provider.name} returned no completion choices"
         )
 
+    finish_reason = choices[0].get("finish_reason")
     message = choices[0].get("message") or {}
     completion = _extract_text_content(message.get("content", ""))
     tool_calls = message.get("tool_calls")
@@ -315,14 +357,16 @@ def _execute_openai_compatible_chat_completion(
     usage = data.get("usage") or {}
     prompt_tokens = int(usage.get("prompt_tokens") or 0)
     completion_tokens = int(usage.get("completion_tokens") or 0)
+    # NOTE: `(x or {})` not `x.get(k, {})` — some providers send the *_details key
+    # explicitly as null, and dict.get's default only applies when the key is absent.
     cached_tokens = int(
         usage.get("cached_tokens")
-        or usage.get("prompt_tokens_details", {}).get("cached_tokens")
+        or (usage.get("prompt_tokens_details") or {}).get("cached_tokens")
         or 0
     )
     reasoning_tokens = int(
         usage.get("reasoning_tokens")
-        or usage.get("completion_tokens_details", {}).get("reasoning_tokens")
+        or (usage.get("completion_tokens_details") or {}).get("reasoning_tokens")
         or 0
     )
     provider_reported_cost = float(usage.get("cost") or data.get("cost") or 0.0)
@@ -332,6 +376,21 @@ def _execute_openai_compatible_chat_completion(
         messages_dicts = [m.model_dump(exclude_none=True) for m in request.messages]
         prompt_tokens = count_messages_tokens(messages_dicts)
         completion_tokens = count_tokens(completion)
+
+    # Single-line analytics record for the successful call.
+    _emit_call_log({
+        "evt": "llm_call", "ok": True, "task_id": taskid, "trace_id": trace_id,
+        "provider": provider.name, "model": model.provider_model_name,
+        "status": response.status_code, "finish_reason": finish_reason,
+        "latency_ms": elapsed_ms,
+        "req_msgs": num_messages, "req_bytes": request_bytes,
+        "resp_bytes": response_bytes, "completion_chars": len(completion),
+        "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
+        "total_tokens": prompt_tokens + completion_tokens,
+        "cached_tokens": cached_tokens, "reasoning_tokens": reasoning_tokens,
+        "tool_calls": len(tool_calls) if tool_calls else 0,
+        "healed": response_healed,
+    })
 
     return ProviderResult(
         completion=completion,
