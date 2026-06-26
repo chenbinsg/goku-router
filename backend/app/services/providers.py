@@ -224,15 +224,17 @@ def _log_timestamp() -> str:
 
 
 def _emit_call_log(record: dict[str, Any]) -> None:
-    """Emit one single-line JSON trace record to stdout for log-based analytics.
+    """Emit one trace record as a single pure-JSON line to stdout for analytics.
 
-    Single line on purpose: the k8s log collector ingests one record per line, so a
-    multi-line (pretty-printed) payload would be split into many fragmented entries.
+    The whole line is a valid JSON object (timestamp + tag live *inside* it, no text
+    prefix) so log collectors can parse each line directly. Single line on purpose:
+    the k8s collector ingests one record per line.
     """
+    line = {"ts": _log_timestamp(), "log": "llm_trace", **record}
     # flush=True is required: in a container, stdout is block-buffered (not line-
     # buffered), so without flushing these lines sit in the buffer and appear late
     # or get lost on crash — while uvicorn's own logs (which flush) show normally.
-    print(f"[{_log_timestamp()}] llm_trace {json.dumps(record, ensure_ascii=False, default=str)}", flush=True)
+    print(json.dumps(line, ensure_ascii=False, default=str), flush=True)
 def _execute_openai_compatible_chat_completion(
     provider: Provider,
     model: ModelCatalog,

@@ -12,7 +12,12 @@ from sqlalchemy import text
 
 from . import models, schemas, crud
 from .config import get_allowed_router_api_keys, settings
+from .logging_config import setup_logging
 from .db import SessionLocal, engine
+
+# Install JSON log formatting (access logs, tracebacks, app logs) before serving.
+# Runs after uvicorn's configure_logging() so it overrides the defaults.
+setup_logging()
 from .services.circuit_breaker import circuit_breakers
 from .services.scheduler import start_scheduler, stop_scheduler
 from .services.secrets import SecretKeyMissing
