@@ -7,6 +7,8 @@ class DummyResponse:
     def __init__(self, payload):
         self._payload = payload
         self.is_success = True
+        self.status_code = 200
+        self.content = b"{}"
 
     def raise_for_status(self):
         return None
@@ -63,12 +65,13 @@ def test_openai_compatible_provider_executes_via_httpx(monkeypatch):
     monkeypatch.setenv("PROVIDER_EXTERNAL_ROUTER_API_KEY", "secret-key")
     monkeypatch.setattr(providers.httpx, "post", fake_post)
 
-    result = providers.execute_chat_completion(provider, model, request)
+    result = providers.execute_chat_completion(provider, model, request, timeout_s=42.0)
 
     assert captured["url"] == "https://example.test/v1/chat/completions"
     assert captured["json"]["model"] == "gpt-4.1-mini"
     assert captured["json"]["messages"][0]["content"] == "Hello upstream"
     assert captured["headers"]["Authorization"] == "Bearer secret-key"
+    assert captured["timeout"] == 42.0
     assert result.completion == "Upstream response"
     assert result.prompt_tokens == 12
     assert result.completion_tokens == 7

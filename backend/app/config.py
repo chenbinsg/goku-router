@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     admin_user: str = "admin"
     admin_password: str = "admin123"   # override via ADMIN_PASSWORD env var
     router_secret_key: str = ""
+    provider_timeout_internal_s: float = 15.0
+    provider_timeout_external_s: float = 300.0
 
     model_config = SettingsConfigDict(env_prefix="", env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

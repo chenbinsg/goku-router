@@ -2479,6 +2479,17 @@ def _execute_routed_chat_completion(
 
     route_weights = route_trace.get("applied_weights") or _get_route_score_weights(db, classify_workload(request))
     candidates = _resolve_candidates(db, request, guardrails, route_weights)
+    route = None
+    route_timeout_s: float | None = None
+    if request.model != "router/auto":
+        route = db.query(models.RouteRule).filter(models.RouteRule.model_id == request.model).first()
+        if route is not None and route.timeout_ms:
+            route_timeout_s = max(route.timeout_ms / 1000.0, 0.001)
+            route_trace["timeout"] = {
+                "source": "route_rule",
+                "timeout_ms": route.timeout_ms,
+                "timeout_s": route_timeout_s,
+            }
     cache_key = _build_request_cache_key(
         request,
         organization_id=organization_id,
@@ -2489,7 +2500,6 @@ def _execute_routed_chat_completion(
     request_id = str(uuid.uuid4())
     last_error = "NO_AVAILABLE_PROVIDER"
     if not candidates:
-        route = db.query(models.RouteRule).filter(models.RouteRule.model_id == request.model).first()
         if route:
             raw = [(p, _get_model_mapping(db, request.model, p.id))
                    for p in [route.preferred_provider, route.backup_provider] if p]
@@ -2596,7 +2606,7 @@ def _execute_routed_chat_completion(
             }
         started_at = time.perf_counter()
         try:
-            result = execute_chat_completion(provider, model_mapping, request)
+            result = execute_chat_completion(provider, model_mapping, request, timeout_s=route_timeout_s)
             latency = (time.perf_counter() - started_at) * 1000
             billable_prompt_tokens = max(result.prompt_tokens - result.cached_tokens, 0)
             computed_cost = round(

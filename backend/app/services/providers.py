@@ -21,12 +21,19 @@ import uuid
 import httpx
 
 from .. import schemas
-from ..config import get_provider_runtime_config
+from ..config import get_provider_runtime_config, settings
 from ..models import ModelCatalog, Provider
 from .token_counter import count_messages_tokens, count_tokens
 from .circuit_breaker import circuit_breakers
 
 logger = logging.getLogger(__name__)
+
+
+def _default_provider_timeout_s(provider: Provider) -> float:
+    host_type = getattr(provider, "host_type", "external")
+    if host_type == "internal":
+        return float(settings.provider_timeout_internal_s)
+    return float(settings.provider_timeout_external_s)
 
 
 class ProviderExecutionError(Exception):
@@ -239,6 +246,7 @@ def _execute_openai_compatible_chat_completion(
     provider: Provider,
     model: ModelCatalog,
     request: schemas.ChatCompletionRequest,
+    timeout_s: float | None = None,
 ) -> ProviderResult:
     runtime_config = get_provider_runtime_config(provider.name)
     base_url = runtime_config["base_url"]
@@ -279,9 +287,7 @@ def _execute_openai_compatible_chat_completion(
         "Content-Type": "application/json",
     }
 
-    # Determine timeout: internal providers use shorter timeout; large remote models need more time 
-    # external default raised to 300 s — 35B models (Qwen3.6) may take 3–4 min for long outputs
-    timeout = 15.0 if getattr(provider, "host_type", "external") == "internal" else 300.0
+    timeout = timeout_s if timeout_s is not None else _default_provider_timeout_s(provider)
 
     taskid = request.task_id or "no_taskid"
     trace_id = str(uuid.uuid4())
@@ -311,7 +317,7 @@ def _execute_openai_compatible_chat_completion(
         ) from exc
 
     elapsed_ms = round((time.perf_counter() - started_at) * 1000, 1)
-    response_bytes = len(response.content)
+    response_bytes = len(getattr(response, "content", b"") or b"")
 
     # Full response body — DEBUG only.
     if logger.isEnabledFor(logging.DEBUG):
@@ -415,6 +421,7 @@ def execute_chat_completion(
     provider: Provider,
     model: ModelCatalog,
     request: schemas.ChatCompletionRequest,
+    timeout_s: float | None = None,
 ) -> ProviderResult:
     """
     Execute a chat completion against the given provider.
@@ -447,7 +454,7 @@ def execute_chat_completion(
             )
         elif provider.adapter_type == "openai_compatible":
             result = _execute_openai_compatible_chat_completion(
-                provider=provider, model=model, request=request,
+                provider=provider, model=model, request=request, timeout_s=timeout_s,
             )
         else:
             raise ProviderExecutionError(f"Unsupported adapter type: {provider.adapter_type}")
