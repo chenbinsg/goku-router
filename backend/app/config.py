@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     router_secret_key: str = ""
     provider_timeout_internal_s: float = 15.0
     provider_timeout_external_s: float = 300.0
+    request_type_timeout_ms: str = (
+        "tool_use=180000,"
+        "long_context=300000,"
+        "report=300000,"
+        "mcp_search=300000,"
+        "batch=600000"
+    )
 
     model_config = SettingsConfigDict(env_prefix="", env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

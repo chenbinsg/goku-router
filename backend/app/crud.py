@@ -14,6 +14,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from . import models, schemas
+from .config import settings
 from .db import Base
 from .services.providers import ProviderExecutionError, ProviderResult, execute_chat_completion
 from .services.safety import scan_response
@@ -30,6 +31,21 @@ DEFAULT_ROUTE_SCORING_WEIGHTS: dict[str, dict[str, float]] = {
     "long_context": {"capability": 0.2, "latency": 0.1, "cost": 0.7},
     "chat_reasoning": {"capability": 0.3, "latency": 0.25, "cost": 0.45},
     "chat_general": {"capability": 0.3, "latency": 0.25, "cost": 0.45},
+}
+
+REQUEST_TYPE_ALIASES: dict[str, str] = {
+    "mcp": "mcp_search",
+    "mc_search": "mcp_search",
+    "mcp-search": "mcp_search",
+    "mcp_search": "mcp_search",
+    "search": "mcp_search",
+    "research": "mcp_search",
+    "report": "report",
+    "reports": "report",
+    "report_generation": "report",
+    "long_report": "report",
+    "batch": "batch",
+    "offline": "batch",
 }
 
 
@@ -1114,6 +1130,70 @@ def classify_workload(request: schemas.ChatCompletionRequest) -> str:
     if prompt_length > 240:
         return "long_context"
     return "chat_general"
+
+
+def _parse_request_type_timeout_ms() -> dict[str, int]:
+    values: dict[str, int] = {}
+    for item in _csv_to_list(settings.request_type_timeout_ms):
+        if "=" not in item:
+            continue
+        key, raw_value = item.split("=", 1)
+        key = key.strip()
+        try:
+            timeout_ms = int(raw_value.strip())
+        except ValueError:
+            logger_crud.warning("Ignoring invalid request type timeout item: %s", item)
+            continue
+        if key and timeout_ms > 0:
+            values[key] = timeout_ms
+    return values
+
+
+def _request_type_timeout_key(request: schemas.ChatCompletionRequest, workload_class: str) -> str:
+    metadata = request.metadata or {}
+    explicit = (
+        metadata.get("timeout_tier")
+        or metadata.get("request_type")
+        or metadata.get("task_type")
+    )
+    if isinstance(explicit, str) and explicit.strip():
+        normalized = explicit.strip().lower().replace(" ", "_")
+        return REQUEST_TYPE_ALIASES.get(normalized, normalized)
+    return workload_class
+
+
+def _resolve_request_timeout_ms(
+    request: schemas.ChatCompletionRequest,
+    workload_class: str,
+    route_timeout_ms: int | None,
+) -> tuple[int | None, dict[str, Any] | None]:
+    timeouts = _parse_request_type_timeout_ms()
+    timeout_key = _request_type_timeout_key(request, workload_class)
+    request_type_timeout_ms = timeouts.get(timeout_key)
+
+    candidates = [
+        value
+        for value in (route_timeout_ms, request_type_timeout_ms)
+        if value is not None and value > 0
+    ]
+    if not candidates:
+        return None, None
+
+    effective_timeout_ms = max(candidates)
+    source_parts = []
+    if route_timeout_ms:
+        source_parts.append("route_rule")
+    if request_type_timeout_ms:
+        source_parts.append("request_type")
+    return effective_timeout_ms, {
+        "source": "+".join(source_parts),
+        "workload_class": workload_class,
+        "request_type": timeout_key,
+        "route_timeout_ms": route_timeout_ms,
+        "request_type_timeout_ms": request_type_timeout_ms,
+        "effective_timeout_ms": effective_timeout_ms,
+        "timeout_s": effective_timeout_ms / 1000.0,
+    }
 
 
 def _provider_capabilities(provider: models.Provider) -> set[str]:
@@ -2477,19 +2557,24 @@ def _execute_routed_chat_completion(
             "max_prompt_chars": guardrails.max_prompt_chars,
         }
 
-    route_weights = route_trace.get("applied_weights") or _get_route_score_weights(db, classify_workload(request))
+    workload_class = route_trace.get("workload_class") or classify_workload(request)
+    route_weights = route_trace.get("applied_weights") or _get_route_score_weights(db, workload_class)
     candidates = _resolve_candidates(db, request, guardrails, route_weights)
     route = None
+    route_timeout_ms: int | None = None
     route_timeout_s: float | None = None
     if request.model != "router/auto":
         route = db.query(models.RouteRule).filter(models.RouteRule.model_id == request.model).first()
         if route is not None and route.timeout_ms:
-            route_timeout_s = max(route.timeout_ms / 1000.0, 0.001)
-            route_trace["timeout"] = {
-                "source": "route_rule",
-                "timeout_ms": route.timeout_ms,
-                "timeout_s": route_timeout_s,
-            }
+            route_timeout_ms = route.timeout_ms
+    effective_timeout_ms, timeout_trace = _resolve_request_timeout_ms(
+        request=request,
+        workload_class=workload_class,
+        route_timeout_ms=route_timeout_ms,
+    )
+    if effective_timeout_ms:
+        route_timeout_s = max(effective_timeout_ms / 1000.0, 0.001)
+        route_trace["timeout"] = timeout_trace
     cache_key = _build_request_cache_key(
         request,
         organization_id=organization_id,

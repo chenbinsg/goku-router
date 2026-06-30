@@ -51,6 +51,7 @@ class ChatCompletionRequest(BaseModel):
     provider: Optional[ProviderPreferences] = None
     # vLLM / Qwen3 pass-through fields
     extra_body: Optional[dict[str, Any]] = None
+    metadata: Optional[dict[str, Any]] = None
     task_id: Optional[str] = None
 
 
