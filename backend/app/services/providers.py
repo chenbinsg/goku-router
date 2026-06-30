@@ -225,6 +225,32 @@ def _execute_mock_chat_completion(
     )
 
 
+def _messages_for_provider(provider: Provider, request: schemas.ChatCompletionRequest) -> list[dict[str, Any]]:
+    messages = [message.model_dump(exclude_none=True) for message in request.messages]
+    if provider.name != "openrouter":
+        return messages
+    if any(message.get("role") == "user" for message in messages):
+        return messages
+
+    system_messages = [message for message in messages if message.get("role") == "system"]
+    if not system_messages:
+        return messages
+
+    # The hosted Qwen/vLLM gateway behind this provider rejects requests without
+    # a user turn ("No user query found in messages"). Some agent planning
+    # phases can legitimately arrive as a single large system block, so keep any
+    # leading system instructions and convert the final system block into the
+    # user query instead of failing the whole route.
+    user_query = dict(system_messages[-1])
+    user_query["role"] = "user"
+    leading_system = [
+        message
+        for message in messages
+        if message.get("role") == "system" and message is not system_messages[-1]
+    ]
+    return [*leading_system, user_query]
+
+
 # ── OpenAI-compatible adapter (covers vLLM, Ollama, OpenAI, DeepSeek, etc.) ───
 def _log_timestamp() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
@@ -259,7 +285,7 @@ def _execute_openai_compatible_chat_completion(
     url = f"{base_url.rstrip('/')}/chat/completions"
     payload: dict[str, Any] = {
         "model": model.provider_model_name,
-        "messages": [message.model_dump(exclude_none=True) for message in request.messages],
+        "messages": _messages_for_provider(provider, request),
     }
     for key in ["temperature", "top_p", "max_tokens", "presence_penalty", "stop", "tool_choice"]:
         value = getattr(request, key)
