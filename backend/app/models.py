@@ -217,7 +217,10 @@ class GuardrailConfig(Base):
     allowed_providers = Column(Text, nullable=True)
     denied_providers = Column(Text, nullable=True)
     blocked_words = Column(Text, nullable=True)
-    max_prompt_chars = Column(Integer, nullable=False, default=4000)
+    # Generous default — this is a cost/abuse guardrail, not a model context limit.
+    # Must match the lazy-create fallback in crud._get_guardrail_config (200000).
+    # A small value here previously dropped the user message during compression.
+    max_prompt_chars = Column(Integer, nullable=False, default=200000)
     retention_mode = Column(String(64), nullable=False, default="standard")
 
 

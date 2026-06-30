@@ -469,7 +469,7 @@ class GuardrailConfigItem(BaseModel):
     allowed_providers: List[str] = []
     denied_providers: List[str] = []
     blocked_words: List[str] = []
-    max_prompt_chars: int = 4000
+    max_prompt_chars: int = 200000
     retention_mode: str = "standard"
 
 
@@ -477,7 +477,7 @@ class GuardrailConfigUpdate(BaseModel):
     allowed_providers: List[str] = []
     denied_providers: List[str] = []
     blocked_words: List[str] = []
-    max_prompt_chars: int = 4000
+    max_prompt_chars: int = 200000
     retention_mode: str = "standard"
 
 

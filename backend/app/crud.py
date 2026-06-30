@@ -1064,34 +1064,72 @@ def _resolve_dataset_path(dataset_path: str) -> Path:
     return path
 
 
+def _truncate_message_content(content, limit: int):
+    """Truncate a message's text content to at most ``limit`` chars.
+
+    Returns ``(new_content, chars_used)``. Non-text parts (e.g. image items in a
+    multimodal content list) are preserved as-is and don't count against the
+    budget. When ``limit`` is 0 all text is dropped but non-text parts survive.
+    """
+    if isinstance(content, str):
+        if limit <= 0:
+            return "", 0
+        chunk = content[:limit]
+        return chunk, len(chunk)
+    if isinstance(content, list):
+        remaining = max(0, limit)
+        copied: list = []
+        for item in content:
+            if not isinstance(item, dict) or item.get("type") != "text":
+                copied.append(item)
+                continue
+            text_value = str(item.get("text", ""))[:remaining]
+            remaining -= len(text_value)
+            copied.append({**item, "text": text_value})
+        return copied, max(0, limit) - remaining
+    if limit <= 0:
+        return "", 0
+    text_value = str(content)[:limit]
+    return text_value, len(text_value)
+
+
 def _compress_request_messages(request: schemas.ChatCompletionRequest, max_chars: int):
     prompt = _extract_prompt_from_request(request)
     if len(prompt) <= max_chars:
         return
-    remaining = max_chars
-    compressed_messages: list[schemas.ChatMessage] = []
-    for message in request.messages:
-        content = message.content
-        if isinstance(content, str):
-            chunk = content[:remaining]
-            remaining -= len(chunk)
-            compressed_messages.append(schemas.ChatMessage(role=message.role, content=chunk))
-        elif isinstance(content, list):
-            copied: list[dict[str, str]] = []
-            for item in content:
-                if not isinstance(item, dict) or item.get("type") != "text":
-                    copied.append(item)
-                    continue
-                text_value = str(item.get("text", ""))[:remaining]
-                remaining -= len(text_value)
-                copied.append({**item, "text": text_value})
-            compressed_messages.append(schemas.ChatMessage(role=message.role, content=copied))
-        else:
-            text_value = str(content)[:remaining]
-            remaining -= len(text_value)
-            compressed_messages.append(schemas.ChatMessage(role=message.role, content=text_value))
-        if remaining <= 0:
+
+    messages = request.messages
+    # The most recent user message carries the actual request — it must never be
+    # dropped. Reserve its budget first, then share whatever remains across the
+    # other messages (system prompt + prior history) in order. This fixes the bug
+    # where a long system prompt could consume the entire budget and the user's
+    # message got silently discarded, leaving the model with no question to answer.
+    last_user_idx = None
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].role == "user":
+            last_user_idx = i
             break
+
+    if last_user_idx is not None:
+        preserved_content, preserved_used = _truncate_message_content(
+            messages[last_user_idx].content, max_chars
+        )
+    else:
+        preserved_content, preserved_used = None, 0
+
+    remaining = max(0, max_chars - preserved_used)
+    compressed_messages: list[schemas.ChatMessage] = []
+    for idx, message in enumerate(messages):
+        if idx == last_user_idx:
+            compressed_messages.append(
+                schemas.ChatMessage(role=message.role, content=preserved_content)
+            )
+            continue
+        new_content, used = _truncate_message_content(message.content, remaining)
+        remaining -= used
+        compressed_messages.append(
+            schemas.ChatMessage(role=message.role, content=new_content)
+        )
     request.messages = compressed_messages
 
 
