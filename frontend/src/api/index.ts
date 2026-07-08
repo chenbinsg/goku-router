@@ -599,6 +599,13 @@ export const saveRouteRule = async (routeRule: RouteRule): Promise<RouteRule> =>
   };
 };
 
+export const deleteRouteRule = async (routeRule: RouteRule): Promise<void> => {
+  if (!routeRule.id) {
+    throw new Error('Route rule id is missing');
+  }
+  await adminClient.delete(`/admin/routes/${routeRule.id}`);
+};
+
 export const getNotifications = async (): Promise<Notification[]> => {
   const response = await adminClient.get('/admin/notifications');
   return response.data.map((item: any) => ({

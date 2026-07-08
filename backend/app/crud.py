@@ -3146,6 +3146,7 @@ def delete_provider(db: Session, provider_id: int):
     db_provider = db.query(models.Provider).filter(models.Provider.id == provider_id).first()
     if db_provider is None:
         raise ValueError(f"INVALID_PROVIDER: {provider_id}")
+    provider_name = db_provider.name
     # Remove route rules that reference this provider (preferred or backup)
     affected_rules = db.query(models.RouteRule).filter(
         (models.RouteRule.preferred_provider_id == provider_id) |
@@ -3153,15 +3154,31 @@ def delete_provider(db: Session, provider_id: int):
     ).all()
     for rule in affected_rules:
         db.delete(rule)
-    # Remove model catalog entries that reference this provider
+    # Remove model catalog entries that reference this provider. Historical
+    # request logs are retained, but their nullable FK must be cleared first.
     affected_models = db.query(models.ModelCatalog).filter(
         models.ModelCatalog.provider_id == provider_id
     ).all()
+    affected_model_ids = [m.id for m in affected_models]
+    if affected_model_ids:
+        db.query(models.RequestLog).filter(
+            models.RequestLog.model_catalog_id.in_(affected_model_ids)
+        ).update(
+            {models.RequestLog.model_catalog_id: None},
+            synchronize_session=False,
+        )
     for m in affected_models:
         db.delete(m)
+    # Runtime state derived from this provider should not survive a hard delete.
+    db.query(models.ProviderQualityScore).filter(
+        models.ProviderQualityScore.provider_name == provider_name
+    ).delete(synchronize_session=False)
+    db.query(models.PromptCacheEntry).filter(
+        models.PromptCacheEntry.provider_name == provider_name
+    ).delete(synchronize_session=False)
     _record_audit_log(
         db, "provider_deleted",
-        f"Deleted provider {db_provider.name} "
+        f"Deleted provider {provider_name} "
         f"(and {len(affected_rules)} route rule(s), {len(affected_models)} model catalog entry/entries)",
     )
     db.delete(db_provider)
@@ -3262,6 +3279,12 @@ def delete_model_catalog_item(db: Session, model_id: int) -> bool:
     db_model = db.query(models.ModelCatalog).filter(models.ModelCatalog.id == model_id).first()
     if db_model is None:
         return False
+    db.query(models.RequestLog).filter(
+        models.RequestLog.model_catalog_id == model_id
+    ).update(
+        {models.RequestLog.model_catalog_id: None},
+        synchronize_session=False,
+    )
     db.delete(db_model)
     db.commit()
     return True
@@ -3304,6 +3327,15 @@ def upsert_route_rule(db: Session, route_rule: schemas.RouteRuleCreate):
         backup_provider_name=existing.backup_provider.name if existing.backup_provider else None,
         timeout_ms=existing.timeout_ms,
     )
+
+
+def delete_route_rule(db: Session, route_id: int) -> bool:
+    route = db.query(models.RouteRule).filter(models.RouteRule.id == route_id).first()
+    if route is None:
+        return False
+    db.delete(route)
+    db.commit()
+    return True
 
 
 def list_request_logs(

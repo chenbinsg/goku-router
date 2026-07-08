@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Modal, Form, Input, message, Card } from 'antd';
-import { getProviders, getRouteRules, saveRouteRule } from '../api';
-import { Provider, RouteRule } from '../types';
+import { Table, Button, Modal, Form, Input, message, Card, Popconfirm, Space, Select } from 'antd';
+import { deleteRouteRule, getModels, getProviders, getRouteRules, saveRouteRule } from '../api';
+import { Model, Provider, RouteRule } from '../types';
 import { useI18n } from '../i18n';
 
 const RoutingAdminPage: React.FC = () => {
   const { t } = useI18n();
   const [routeRules, setRouteRules] = useState<RouteRule[]>([]);
+  const [models, setModels] = useState<Model[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(false);
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -17,8 +18,13 @@ const RoutingAdminPage: React.FC = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [routes, providerList] = await Promise.all([getRouteRules(), getProviders()]);
+        const [routes, modelList, providerList] = await Promise.all([
+          getRouteRules(),
+          getModels(),
+          getProviders(),
+        ]);
         setRouteRules(routes);
+        setModels(modelList);
         setProviders(providerList);
       } catch (error) {
         message.error(t('routing.loadFailed'));
@@ -29,6 +35,41 @@ const RoutingAdminPage: React.FC = () => {
 
     fetchData();
   }, []);
+
+  const activeModels = models.filter((model) => (model.status || 'active') === 'active');
+  const modelOptions = Array.from(new Set(activeModels.map((model) => model.modelId))).sort();
+  const selectedModelId = Form.useWatch('modelId', form);
+  const preferredProviderId = Form.useWatch('preferredProviderId', form);
+  const matchingModelMappings = selectedModelId
+    ? activeModels.filter((model) => model.modelId === selectedModelId)
+    : [];
+  const providerOptions = matchingModelMappings.length > 0
+    ? matchingModelMappings.map((model) => {
+        const provider = providers.find((item) => item.id === model.providerId);
+        return {
+          value: model.providerId,
+          label: provider?.providerName || model.providerName || String(model.providerId),
+          providerModelName: model.providerModelName,
+        };
+      }).filter((provider) => provider.value !== undefined)
+    : providers
+        .filter((provider) => (provider.status || 'active') === 'active')
+        .map((provider) => ({
+          value: provider.id,
+          label: provider.providerName,
+          providerModelName: undefined,
+        }))
+        .filter((provider) => provider.value !== undefined);
+
+  const handleDelete = async (record: RouteRule) => {
+    try {
+      await deleteRouteRule(record);
+      setRouteRules((current) => current.filter((item) => item.id !== record.id));
+      message.success(t('routing.deleted'));
+    } catch (error) {
+      message.error(t('routing.deleteFailed'));
+    }
+  };
 
   const columns = [
     {
@@ -55,16 +96,29 @@ const RoutingAdminPage: React.FC = () => {
       title: 'Actions',
       key: 'actions',
       render: (_: unknown, record: RouteRule) => (
-        <Button
-          type="link"
-          onClick={() => {
-            setEditingRoute(record);
-            form.setFieldsValue(record);
-            setIsModalVisible(true);
-          }}
-        >
-          {t('common.edit')}
-        </Button>
+        <Space>
+          <Button
+            type="link"
+            onClick={() => {
+              setEditingRoute(record);
+              form.setFieldsValue(record);
+              setIsModalVisible(true);
+            }}
+          >
+            {t('common.edit')}
+          </Button>
+          <Popconfirm
+            title={t('routing.deleteConfirmTitle')}
+            description={t('routing.deleteConfirmDesc')}
+            okText={t('common.delete')}
+            cancelText={t('common.cancel')}
+            onConfirm={() => handleDelete(record)}
+          >
+            <Button type="link" danger>
+              {t('common.delete')}
+            </Button>
+          </Popconfirm>
+        </Space>
       ),
     },
   ];
@@ -93,7 +147,7 @@ const RoutingAdminPage: React.FC = () => {
         onClick={() => {
           setEditingRoute(null);
           form.resetFields();
-          form.setFieldsValue({ timeoutMs: 1500 } as RouteRule);
+          form.setFieldsValue({ timeoutMs: 60000 } as RouteRule);
           setIsModalVisible(true);
         }}
         style={{ marginBottom: 16 }}
@@ -117,17 +171,67 @@ const RoutingAdminPage: React.FC = () => {
             name="modelId"
             rules={[{ required: true, message: t('routing.modelRequired') }]}
           >
-            <Input />
+            <Select
+              showSearch
+              placeholder={t('routing.modelPlaceholder')}
+              optionFilterProp="label"
+              onChange={(modelId) => {
+                const candidates = activeModels.filter((model) => model.modelId === modelId);
+                form.setFieldsValue({
+                  preferredProviderId: candidates[0]?.providerId,
+                  backupProviderId: undefined,
+                } as RouteRule);
+              }}
+            >
+              {modelOptions.map((modelId) => (
+                <Select.Option key={modelId} value={modelId} label={modelId}>
+                  {modelId}
+                </Select.Option>
+              ))}
+            </Select>
           </Form.Item>
           <Form.Item
-            label={t('routing.preferredProviderId')}
+            label={t('routing.preferredProvider')}
             name="preferredProviderId"
             rules={[{ required: true, message: t('routing.providerRequired') }]}
           >
-            <Input placeholder={providers.map((provider) => `${provider.id}:${provider.providerName}`).join(', ')} />
+            <Select
+              showSearch
+              placeholder={t('routing.providerPlaceholder')}
+              optionFilterProp="label"
+            >
+              {providerOptions.map((provider) => (
+                <Select.Option
+                  key={provider.value}
+                  value={provider.value}
+                  label={`${provider.label} ${provider.providerModelName || ''}`}
+                >
+                  {provider.label}
+                  {provider.providerModelName ? ` (${provider.providerModelName})` : ''}
+                </Select.Option>
+              ))}
+            </Select>
           </Form.Item>
-          <Form.Item label={t('routing.backupProviderId')} name="backupProviderId">
-            <Input />
+          <Form.Item label={t('routing.backupProvider')} name="backupProviderId">
+            <Select
+              allowClear
+              showSearch
+              placeholder={t('routing.backupProviderPlaceholder')}
+              optionFilterProp="label"
+            >
+              {providerOptions
+                .filter((provider) => provider.value !== preferredProviderId)
+                .map((provider) => (
+                  <Select.Option
+                    key={provider.value}
+                    value={provider.value}
+                    label={`${provider.label} ${provider.providerModelName || ''}`}
+                  >
+                    {provider.label}
+                    {provider.providerModelName ? ` (${provider.providerModelName})` : ''}
+                  </Select.Option>
+                ))}
+            </Select>
           </Form.Item>
           <Form.Item label={t('routing.timeoutMs')} name="timeoutMs">
             <Input />

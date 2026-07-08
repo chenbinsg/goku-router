@@ -591,6 +591,12 @@ def upsert_route_rule(route_rule: schemas.RouteRuleCreate, db: Session = Depends
     return crud.upsert_route_rule(db=db, route_rule=route_rule)
 
 
+@app.delete("/admin/routes/{route_id}", status_code=204)
+def delete_route_rule(route_id: int, db: Session = Depends(get_db)):
+    if not crud.delete_route_rule(db=db, route_id=route_id):
+        raise HTTPException(status_code=404, detail=f"Route rule {route_id} not found")
+
+
 @app.get("/admin/logs", response_model=list[schemas.RequestLogItem])
 def list_request_logs(
     organization_id: int | None = None,
