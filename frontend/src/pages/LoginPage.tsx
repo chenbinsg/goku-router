@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Form, Input, Button, Card, Typography, Alert, Space } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { setTokens } from '../utils/auth';
+import { getBackendBaseUrl } from '../utils/backend';
 
 const { Title, Text } = Typography;
 
@@ -17,14 +18,19 @@ const rollingKeyframes = `
 }
 `;
 
-const BACKEND =
-  (import.meta as any).env?.VITE_BACKEND_URL ??
-  `http://localhost:${(import.meta as any).env?.VITE_BACKEND_PORT || '8159'}`;
+const BACKEND = getBackendBaseUrl();
 
 const LoginPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [systemVersion, setSystemVersion] = useState('');
   const navigate = useNavigate();
+
+  useEffect(() => {
+    axios.get(`${BACKEND}/admin/system/info`)
+      .then((resp) => setSystemVersion(resp.data?.version || ''))
+      .catch(() => setSystemVersion(''));
+  }, []);
 
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
@@ -145,9 +151,11 @@ const LoginPage: React.FC = () => {
             </Form.Item>
           </Form>
 
-          <Text type="secondary" style={{ display: 'block', textAlign: 'center', fontSize: 11, opacity: 0.5 }}>
-            v1.4.1
-          </Text>
+          {systemVersion && (
+            <Text type="secondary" style={{ display: 'block', textAlign: 'center', fontSize: 11, opacity: 0.5 }}>
+              {systemVersion}
+            </Text>
+          )}
         </Space>
       </Card>
     </div>

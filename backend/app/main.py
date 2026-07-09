@@ -2,6 +2,8 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone as _tz
 from pathlib import Path
 import os
+import signal
+import threading
 
 from fastapi import FastAPI, Depends, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -378,6 +380,24 @@ def system_info():
         version=version,
         server_time_utc=datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC"),
     )
+
+
+def _terminate_self_for_restart() -> None:
+    os.kill(os.getpid(), signal.SIGTERM)
+
+
+@app.post("/admin/system/restart")
+def restart_system(_: dict = Depends(require_superadmin)):
+    """Request a Router process restart.
+
+    The process exits after the HTTP response is sent. Production deployments
+    should run Router under Kubernetes, systemd, Docker restart policy, or a
+    similar supervisor so it is started again automatically.
+    """
+    timer = threading.Timer(0.25, _terminate_self_for_restart)
+    timer.daemon = True
+    timer.start()
+    return {"status": "restarting"}
 
 
 @app.post("/v1/chat/completions", response_model=schemas.ChatCompletionResponse)

@@ -43,9 +43,9 @@ import type {
 export { createChatCompletion, createChatCompletionStream, createEmbedding, listModels, exportBilling };
 
 import { getAccessToken, getRefreshToken, setTokens, clearTokens, getUser } from '../utils/auth';
+import { getBackendBaseUrl } from '../utils/backend';
 
-// `?? ` (not `||`) so an explicit empty VITE_BACKEND_URL means "same origin" (Docker build).
-const BASE_URL = import.meta.env.VITE_BACKEND_URL ?? `http://localhost:${import.meta.env.VITE_BACKEND_PORT || '8159'}`;
+const BASE_URL = getBackendBaseUrl();
 const FRONTEND_BASENAME = (import.meta.env.VITE_FRONTEND_BASENAME || '').replace(/\/+$/, '');
 const LOGIN_PATH = `${FRONTEND_BASENAME}/login`;
 
@@ -547,6 +547,11 @@ export const updateProvider = async (provider: Provider): Promise<Provider> => {
 
 export const deleteProvider = async (providerId: string): Promise<void> => {
   await adminClient.delete(`/admin/providers/${providerId}`);
+};
+
+export const restartRouter = async (): Promise<{ status: string }> => {
+  const response = await adminClient.post('/admin/system/restart');
+  return response.data;
 };
 
 export const testProviderConnection = async (

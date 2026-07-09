@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useEffect, useState } from 'react';
-import { Layout, Menu, Segmented, Space, Typography, Button, Avatar, Dropdown } from 'antd';
+import { Layout, Menu, Segmented, Space, Typography, Button, Avatar, Dropdown, Popconfirm, message } from 'antd';
 import { Route, Routes, Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import {
   DashboardOutlined,
@@ -21,9 +21,12 @@ import {
   LockOutlined,
   ProfileOutlined,
   ExperimentOutlined,
+  PoweroffOutlined,
 } from '@ant-design/icons';
 import { useI18n } from './i18n';
 import { isAuthenticated, getUser, clearTokens } from './utils/auth';
+import { getBackendBaseUrl } from './utils/backend';
+import { restartRouter } from './api';
 
 const { Header, Content, Sider } = Layout;
 
@@ -81,9 +84,10 @@ const App: React.FC = () => {
   const location = useLocation();
   const user = getUser();
   const [systemVersion, setSystemVersion] = useState<string>('');
+  const [restartLoading, setRestartLoading] = useState(false);
 
   useEffect(() => {
-    fetch('/admin/system/info')
+    fetch(`${getBackendBaseUrl()}/admin/system/info`)
       .then(r => r.json())
       .then(d => setSystemVersion(d.version || ''))
       .catch(() => {});
@@ -92,6 +96,17 @@ const App: React.FC = () => {
   const handleLogout = () => {
     clearTokens();
     navigate('/login', { replace: true });
+  };
+
+  const handleRestartRouter = async () => {
+    setRestartLoading(true);
+    try {
+      await restartRouter();
+      message.success(t('system.restartRequested'));
+    } catch {
+      message.error(t('system.restartFailed'));
+      setRestartLoading(false);
+    }
   };
 
   const [selectedKey, openGroupKey] = PATH_TO_KEY[location.pathname] ?? ['dashboard', ''];
@@ -304,6 +319,19 @@ const App: React.FC = () => {
               ]}
             />
           </Space>
+
+          <Popconfirm
+            title={t('system.restartConfirmTitle')}
+            description={t('system.restartConfirmDesc')}
+            okText={t('system.restart')}
+            cancelText={t('common.cancel')}
+            okButtonProps={{ danger: true }}
+            onConfirm={handleRestartRouter}
+          >
+            <Button danger icon={<PoweroffOutlined />} loading={restartLoading}>
+              {t('system.restart')}
+            </Button>
+          </Popconfirm>
 
           <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
             <Button type="text" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 import uuid
+from unittest.mock import MagicMock, patch
 
 from app.main import app
 from tests.helpers import authenticate_admin_client
@@ -16,6 +17,31 @@ def test_models_catalog_is_public():
 def test_admin_routes_require_jwt():
     response = TestClient(app).get("/admin/organizations")
     assert response.status_code == 401
+
+
+def test_restart_router_requires_jwt():
+    response = TestClient(app).post("/admin/system/restart")
+    assert response.status_code == 401
+
+
+def test_restart_router_schedules_process_termination_for_superadmin():
+    class FakeTimer:
+        daemon = False
+
+        def __init__(self, delay, callback):
+            self.delay = delay
+            self.callback = callback
+
+        def start(self):
+            pass
+
+    timer_mock = MagicMock(side_effect=FakeTimer)
+    with patch("app.main.threading.Timer", timer_mock):
+        response = client.post("/admin/system/restart")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "restarting"}
+    assert timer_mock.call_args.args[0] == 0.25
 
 
 def test_models_accepts_bearer_api_key():
