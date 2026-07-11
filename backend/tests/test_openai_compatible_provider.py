@@ -127,6 +127,56 @@ def test_openrouter_provider_converts_system_only_prompt_to_user(monkeypatch):
     assert result.completion == "Next action planned."
 
 
+def test_openrouter_provider_merges_system_prompt_into_first_user(monkeypatch):
+    provider = Provider(
+        name="openrouter",
+        adapter_type="openai_compatible",
+        status="active",
+        health_status="healthy",
+        priority=10,
+    )
+    model = ModelCatalog(
+        model_id="Qwen3.6",
+        provider_id=1,
+        provider_model_name="Qwen3.6-35B-A3B-FP8",
+        status="active",
+    )
+    request = schemas.ChatCompletionRequest(
+        model="Qwen3.6",
+        messages=[
+            schemas.ChatMessage(role="system", content="Follow policy."),
+            schemas.ChatMessage(role="user", content="Reply OK only."),
+        ],
+    )
+
+    captured = {}
+
+    def fake_post(url, json, headers, timeout):
+        captured["json"] = json
+        return DummyResponse(
+            {
+                "choices": [
+                    {"message": {"content": "OK"}},
+                ],
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 1,
+                },
+            }
+        )
+
+    monkeypatch.setenv("PROVIDER_OPENROUTER_BASE_URL", "https://example.test/v1")
+    monkeypatch.setenv("PROVIDER_OPENROUTER_API_KEY", "secret-key")
+    monkeypatch.setattr(providers.httpx, "post", fake_post)
+
+    result = providers.execute_chat_completion(provider, model, request)
+
+    assert captured["json"]["messages"] == [
+        {"role": "user", "content": "Follow policy.\n\nReply OK only."}
+    ]
+    assert result.completion == "OK"
+
+
 def test_openai_compatible_provider_marks_valid_json_object_as_not_healed(monkeypatch):
     provider = Provider(
         name="external_router",

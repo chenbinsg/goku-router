@@ -1303,24 +1303,97 @@ def _provider_route_score(
     weights: dict[str, float] | None = None,
     db: Session | None = None,
 ) -> tuple[float, dict[str, float]]:
+    """
+    Calculate provider route score.
+
+    Important:
+    - quality_multiplier requires db to be passed in.
+    - cost_score and latency_score are bounded to avoid one dimension dominating.
+    - health_status is applied as an additional multiplier.
+    """
+
     total_price = provider.input_cost_per_1k + provider.output_cost_per_1k
     capabilities = _provider_capabilities(provider)
-    active_weights = _normalize_weight_map(weights or _get_default_route_score_weights(workload_class))
+    active_weights = _normalize_weight_map(
+        weights or _get_default_route_score_weights(workload_class)
+    )
 
     required_capabilities = _infer_required_capabilities(request)
     matched_capabilities = len(required_capabilities.intersection(capabilities))
     capability_score = matched_capabilities / max(len(required_capabilities), 1)
-    latency_score = 1 / max(provider.avg_latency_ms, 1)
-    cost_score = 1 / max(total_price, 0.001)
 
-    # v1.3.0: multiply by quality score from drift monitor measurements
-    quality_multiplier = _get_provider_quality_score(db, provider.name, workload_class)
+    # ------------------------------------------------------------------
+    # Normalize latency score.
+    #
+    # Old logic:
+    #   latency_score = 1 / avg_latency_ms
+    #
+    # Problem:
+    #   The value becomes extremely tiny and hard to interpret.
+    #
+    # New logic:
+    #   A provider with latency <= reference_latency_ms gets close to 1.0.
+    #   Slower providers get proportionally lower score.
+    # ------------------------------------------------------------------
+    reference_latency_ms = 5_000.0
+    avg_latency_ms = max(float(provider.avg_latency_ms or reference_latency_ms), 1.0)
+    latency_score = min(reference_latency_ms / avg_latency_ms, 1.0)
+
+    # ------------------------------------------------------------------
+    # Normalize cost score.
+    #
+    # Old logic:
+    #   cost_score = 1 / total_price
+    #
+    # Problem:
+    #   If total_price = 0.003, cost_score = 333.333333,
+    #   which dominates the whole route_score.
+    #
+    # New logic:
+    #   A provider with price <= reference_price_per_1k gets close to 1.0.
+    #   More expensive providers get proportionally lower score.
+    # ------------------------------------------------------------------
+    reference_price_per_1k = 0.01
+    safe_total_price = max(float(total_price or reference_price_per_1k), 0.000001)
+    cost_score = min(reference_price_per_1k / safe_total_price, 1.0)
+
+    # ------------------------------------------------------------------
+    # Provider quality from drift monitor / health measurements.
+    # This only works if db is passed in by the caller.
+    # ------------------------------------------------------------------
+    quality_multiplier = _get_provider_quality_score(
+        db,
+        provider.name,
+        workload_class,
+    )
+
+    # ------------------------------------------------------------------
+    # Simple provider health multiplier.
+    # This makes health_status affect score even before full circuit breaker
+    # integration is added to candidate filtering.
+    # ------------------------------------------------------------------
+    health_status = (getattr(provider, "health_status", None) or "healthy").lower()
+
+    if health_status == "healthy":
+        health_multiplier = 1.0
+    elif health_status == "degraded":
+        health_multiplier = 0.4
+    elif health_status in {"unhealthy", "down"}:
+        health_multiplier = 0.05
+    else:
+        health_multiplier = 1.0
+
+    raw_score_before_multipliers = (
+        active_weights["capability"] * capability_score
+        + active_weights["latency"] * latency_score
+        + active_weights["cost"] * cost_score
+    )
 
     raw_score = (
-        active_weights["capability"] * capability_score
-        + active_weights["latency"] * latency_score * 100
-        + active_weights["cost"] * cost_score
-    ) * quality_multiplier
+        raw_score_before_multipliers
+        * quality_multiplier
+        * health_multiplier
+    )
 
     return raw_score, {
         "applied_capability_weight": round(active_weights["capability"], 4),
@@ -1330,6 +1403,8 @@ def _provider_route_score(
         "latency_score": round(latency_score, 6),
         "cost_score": round(cost_score, 6),
         "quality_multiplier": round(quality_multiplier, 4),
+        "health_multiplier": round(health_multiplier, 4),
+        "raw_score_before_multipliers": round(raw_score_before_multipliers, 6),
         "raw_score": round(raw_score, 6),
     }
 
@@ -1430,8 +1505,16 @@ def _filter_and_sort_candidates(
     guardrails: models.GuardrailConfig,
     route_weights: dict[str, float] | None = None,
     sticky_provider_name: str | None = None,
+    db: Session | None = None,
 ) -> list[tuple[models.Provider, models.ModelCatalog]]:
-    traces = _build_candidate_trace(request, candidates, guardrails, route_weights, sticky_provider_name)
+    traces = _build_candidate_trace(
+        request,
+        candidates,
+        guardrails,
+        route_weights,
+        sticky_provider_name,
+        db=db,
+    )
     accepted_names = {
         item["provider"]
         for item in traces
@@ -1573,8 +1656,24 @@ def build_route_decision_trace(
             if mapping is not None:
                 candidates.append((provider, mapping))
 
-    traces = _build_candidate_trace(request, candidates, guardrails, route_weights, sticky_provider_name)
-    selected_candidates = _filter_and_sort_candidates(request, candidates, guardrails, route_weights, sticky_provider_name)
+    traces = _build_candidate_trace(
+        request,
+        candidates,
+        guardrails,
+        route_weights,
+        sticky_provider_name,
+        db=db,
+    )
+
+    selected_candidates = _filter_and_sort_candidates(
+        request,
+        candidates,
+        guardrails,
+        route_weights,
+        sticky_provider_name,
+        db=db,
+    )
+
     selected_provider = selected_candidates[0][0].name if selected_candidates else None
     selected_model = selected_candidates[0][1].model_id if selected_candidates else None
     block_reason = None
@@ -2627,7 +2726,7 @@ def _execute_routed_chat_completion(
             raw = [(p, _get_model_mapping(db, request.model, p.id))
                    for p in [route.preferred_provider, route.backup_provider] if p]
             raw = [(p, m) for p, m in raw if m]
-            for t in _build_candidate_trace(request, raw, guardrails):
+            for t in _build_candidate_trace(request, raw, guardrails, db=db):
                 logger_crud.warning("NO_AVAILABLE_PROVIDER: provider=%s reject=%s prompt_tokens=%s max_input=%s",
                     t["provider"], t["reject_reason"], t["estimated_prompt_tokens"], t["max_input_tokens"])
         raise ValueError("NO_AVAILABLE_PROVIDER")

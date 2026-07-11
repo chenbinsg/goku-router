@@ -229,26 +229,35 @@ def _messages_for_provider(provider: Provider, request: schemas.ChatCompletionRe
     messages = [message.model_dump(exclude_none=True) for message in request.messages]
     if provider.name != "openrouter":
         return messages
-    if any(message.get("role") == "user" for message in messages):
-        return messages
 
     system_messages = [message for message in messages if message.get("role") == "system"]
     if not system_messages:
         return messages
 
-    # The hosted Qwen/vLLM gateway behind this provider rejects requests without
-    # a user turn ("No user query found in messages"). Some agent planning
-    # phases can legitimately arrive as a single large system block, so keep any
-    # leading system instructions and convert the final system block into the
-    # user query instead of failing the whole route.
-    user_query = dict(system_messages[-1])
-    user_query["role"] = "user"
-    leading_system = [
-        message
-        for message in messages
-        if message.get("role") == "system" and message is not system_messages[-1]
-    ]
-    return [*leading_system, user_query]
+    # The hosted Qwen/vLLM gateway behind this provider rejects system-role
+    # messages. Preserve the instruction text by folding system blocks into the
+    # first user turn; if there is no user turn, convert the last system block.
+    system_text = "\n\n".join(
+        _extract_text_content(message.get("content"))
+        for message in system_messages
+        if _extract_text_content(message.get("content"))
+    )
+    normalized = [message for message in messages if message.get("role") != "system"]
+    first_user_idx = next(
+        (idx for idx, message in enumerate(normalized) if message.get("role") == "user"),
+        None,
+    )
+    if first_user_idx is None:
+        user_query = dict(system_messages[-1])
+        user_query["role"] = "user"
+        return [user_query]
+
+    if system_text:
+        user_query = dict(normalized[first_user_idx])
+        user_text = _extract_text_content(user_query.get("content"))
+        user_query["content"] = f"{system_text}\n\n{user_text}" if user_text else system_text
+        normalized[first_user_idx] = user_query
+    return normalized
 
 
 # ── OpenAI-compatible adapter (covers vLLM, Ollama, OpenAI, DeepSeek, etc.) ───
