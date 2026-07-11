@@ -554,6 +554,27 @@ export const restartRouter = async (): Promise<{ status: string }> => {
   return response.data;
 };
 
+export interface SystemEnvironmentItem {
+  name: string;
+  value?: string;
+  source: 'process_env' | 'dotenv' | 'default';
+  configured: boolean;
+  sensitive: boolean;
+  category: 'runtime' | 'database' | 'provider' | 'security' | 'routing' | 'observability';
+  restart_required: boolean;
+}
+
+export interface SystemEnvironmentSnapshot {
+  startup_time: string;
+  dotenv_path: string;
+  items: SystemEnvironmentItem[];
+}
+
+export const getSystemEnvironment = async (): Promise<SystemEnvironmentSnapshot> => {
+  const response = await adminClient.get('/admin/system/environment');
+  return response.data;
+};
+
 export const testProviderConnection = async (
   payload: ProviderConnectionTestInput,
 ): Promise<ProviderConnectionTestResult> => {

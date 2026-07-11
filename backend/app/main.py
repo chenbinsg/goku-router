@@ -382,6 +382,14 @@ def system_info():
     )
 
 
+@app.get("/admin/system/environment", response_model=schemas.SystemEnvironmentResponse)
+def system_environment(_: dict = Depends(require_superadmin)):
+    """Return the sanitized configuration snapshot captured at process startup."""
+    from .config import get_startup_environment_snapshot
+
+    return get_startup_environment_snapshot()
+
+
 def _terminate_self_for_restart() -> None:
     os.kill(os.getpid(), signal.SIGTERM)
 

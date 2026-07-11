@@ -988,6 +988,22 @@ class SystemInfoResponse(BaseModel):
     server_time_utc: str
 
 
+class SystemEnvironmentItem(BaseModel):
+    name: str
+    value: Optional[str] = None
+    source: str
+    configured: bool
+    sensitive: bool
+    category: str
+    restart_required: bool = True
+
+
+class SystemEnvironmentResponse(BaseModel):
+    startup_time: str
+    dotenv_path: str
+    items: list[SystemEnvironmentItem]
+
+
 class PasswordChangeRequest(BaseModel):
     current_password: str
     new_password: str

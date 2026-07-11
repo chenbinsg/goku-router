@@ -22,6 +22,7 @@ import {
   ProfileOutlined,
   ExperimentOutlined,
   PoweroffOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import { useI18n } from './i18n';
 import { isAuthenticated, getUser, clearTokens } from './utils/auth';
@@ -48,6 +49,7 @@ const ApiKeysAdminPage       = lazy(() => import('./pages/ApiKeysAdminPage'));
 const UsersAdminPage         = lazy(() => import('./pages/UsersAdminPage'));
 const ProfilePage            = lazy(() => import('./pages/ProfilePage'));
 const LoginPage              = lazy(() => import('./pages/LoginPage'));
+const SystemEnvironmentPage  = lazy(() => import('./pages/SystemEnvironmentPage'));
 
 const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
@@ -72,6 +74,7 @@ const PATH_TO_KEY: Record<string, [string, string]> = {
   '/admin/security':      ['security',   'grp-access'],
   '/admin/users':         ['users',      'grp-access'],
   '/admin/profile':       ['profile',    ''],
+  '/admin/system/environment': ['system-environment', ''],
   '/admin/credits':       ['credits',    'grp-billing'],
   '/admin/billing':       ['billing',    'grp-billing'],
   '/admin/logs':          ['logs',       'grp-observability'],
@@ -160,6 +163,11 @@ const App: React.FC = () => {
       icon: <DashboardOutlined />,
       label: <Link to="/admin/dashboard">{t('nav.dashboard')}</Link>,
     },
+    ...(user?.role === 'superadmin' ? [{
+      key: 'system-environment',
+      icon: <SettingOutlined />,
+      label: <Link to="/admin/system/environment">{t('nav.systemEnvironment')}</Link>,
+    }] : []),
 
     // ── Playground (collapsible submenu) ──────────────────────────────────────
     {
@@ -363,6 +371,7 @@ const App: React.FC = () => {
               <Route path="/admin/notifications"  element={<RequireAuth><NotificationsAdminPage /></RequireAuth>} />
               <Route path="/admin/users"          element={<RequireAuth><UsersAdminPage /></RequireAuth>} />
               <Route path="/admin/profile"        element={<RequireAuth><ProfilePage /></RequireAuth>} />
+              <Route path="/admin/system/environment" element={<RequireAuth><SystemEnvironmentPage /></RequireAuth>} />
               <Route path="*"                     element={<Navigate to="/admin/dashboard" replace />} />
             </Routes>
           </Suspense>
