@@ -94,15 +94,21 @@ def _environment_category(name: str) -> str:
     return "runtime"
 
 
-def get_startup_environment_snapshot() -> dict:
+def get_startup_environment_snapshot(
+    provider_names: list[str] | None = None,
+    include_secrets: bool = False,
+) -> dict:
     """Return the immutable, sanitized configuration captured at process start."""
     setting_names = {field_name.upper() for field_name in Settings.model_fields}
-    provider_names = {
+    provider_keys = {
         name
         for name in set(_STARTUP_PROCESS_ENV) | set(_ENV_VALUES)
         if name.startswith("PROVIDER_")
     }
-    names = setting_names | provider_names | set(_DIRECT_ENV_DEFAULTS) | set(_ENV_VALUES)
+    for provider_name in provider_names or []:
+        provider_keys.add(provider_env_key(provider_name, "BASE_URL"))
+        provider_keys.add(provider_env_key(provider_name, "API_KEY"))
+    names = setting_names | provider_keys | set(_DIRECT_ENV_DEFAULTS) | set(_ENV_VALUES)
     items = []
     for name in sorted(names):
         field_name = name.lower()
@@ -123,7 +129,11 @@ def get_startup_environment_snapshot() -> dict:
             source = "default"
             configured = False
 
-        value, sensitive = _mask_environment_value(name, raw_value)
+        sensitive = _is_sensitive_env(name)
+        if include_secrets:
+            value = raw_value
+        else:
+            value, sensitive = _mask_environment_value(name, raw_value)
         items.append({
             "name": name,
             "value": value,

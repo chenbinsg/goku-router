@@ -5,7 +5,7 @@ import os
 import signal
 import threading
 
-from fastapi import FastAPI, Depends, Header, HTTPException, Request
+from fastapi import FastAPI, Depends, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -383,11 +383,21 @@ def system_info():
 
 
 @app.get("/admin/system/environment", response_model=schemas.SystemEnvironmentResponse)
-def system_environment(_: dict = Depends(require_superadmin)):
+def system_environment(
+    response: Response,
+    _: dict = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+):
     """Return the sanitized configuration snapshot captured at process startup."""
     from .config import get_startup_environment_snapshot
 
-    return get_startup_environment_snapshot()
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    providers = crud.list_providers(db)
+    return get_startup_environment_snapshot(
+        [provider.name for provider in providers],
+        include_secrets=True,
+    )
 
 
 def _terminate_self_for_restart() -> None:

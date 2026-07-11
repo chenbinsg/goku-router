@@ -575,6 +575,16 @@ export const getSystemEnvironment = async (): Promise<SystemEnvironmentSnapshot>
   return response.data;
 };
 
+export interface SystemInfo {
+  version: string;
+  server_time_utc: string;
+}
+
+export const getSystemInfo = async (): Promise<SystemInfo> => {
+  const response = await adminClient.get('/admin/system/info');
+  return response.data;
+};
+
 export const testProviderConnection = async (
   payload: ProviderConnectionTestInput,
 ): Promise<ProviderConnectionTestResult> => {

@@ -1,5 +1,5 @@
-import React, { Suspense, lazy, useEffect, useState } from 'react';
-import { Layout, Menu, Segmented, Space, Typography, Button, Avatar, Dropdown, Popconfirm, message } from 'antd';
+import React, { Suspense, lazy } from 'react';
+import { Layout, Menu, Segmented, Space, Typography, Button, Avatar, Dropdown } from 'antd';
 import { Route, Routes, Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import {
   DashboardOutlined,
@@ -21,13 +21,11 @@ import {
   LockOutlined,
   ProfileOutlined,
   ExperimentOutlined,
-  PoweroffOutlined,
   SettingOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons';
 import { useI18n } from './i18n';
 import { isAuthenticated, getUser, clearTokens } from './utils/auth';
-import { getBackendBaseUrl } from './utils/backend';
-import { restartRouter } from './api';
 
 const { Header, Content, Sider } = Layout;
 
@@ -50,6 +48,7 @@ const UsersAdminPage         = lazy(() => import('./pages/UsersAdminPage'));
 const ProfilePage            = lazy(() => import('./pages/ProfilePage'));
 const LoginPage              = lazy(() => import('./pages/LoginPage'));
 const SystemEnvironmentPage  = lazy(() => import('./pages/SystemEnvironmentPage'));
+const SystemVersionPage      = lazy(() => import('./pages/SystemVersionPage'));
 
 const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
@@ -74,11 +73,12 @@ const PATH_TO_KEY: Record<string, [string, string]> = {
   '/admin/security':      ['security',   'grp-access'],
   '/admin/users':         ['users',      'grp-access'],
   '/admin/profile':       ['profile',    ''],
-  '/admin/system/environment': ['system-environment', ''],
+  '/admin/system/environment': ['system-environment', 'grp-system'],
+  '/admin/system/version': ['system-version', 'grp-system'],
   '/admin/credits':       ['credits',    'grp-billing'],
   '/admin/billing':       ['billing',    'grp-billing'],
-  '/admin/logs':          ['logs',       'grp-observability'],
-  '/admin/notifications': ['notifications','grp-observability'],
+  '/admin/logs':          ['logs',       'grp-system'],
+  '/admin/notifications': ['notifications','grp-system'],
 };
 
 const App: React.FC = () => {
@@ -86,30 +86,10 @@ const App: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const user = getUser();
-  const [systemVersion, setSystemVersion] = useState<string>('');
-  const [restartLoading, setRestartLoading] = useState(false);
-
-  useEffect(() => {
-    fetch(`${getBackendBaseUrl()}/admin/system/info`)
-      .then(r => r.json())
-      .then(d => setSystemVersion(d.version || ''))
-      .catch(() => {});
-  }, []);
 
   const handleLogout = () => {
     clearTokens();
     navigate('/login', { replace: true });
-  };
-
-  const handleRestartRouter = async () => {
-    setRestartLoading(true);
-    try {
-      await restartRouter();
-      message.success(t('system.restartRequested'));
-    } catch {
-      message.error(t('system.restartFailed'));
-      setRestartLoading(false);
-    }
   };
 
   const [selectedKey, openGroupKey] = PATH_TO_KEY[location.pathname] ?? ['dashboard', ''];
@@ -163,12 +143,6 @@ const App: React.FC = () => {
       icon: <DashboardOutlined />,
       label: <Link to="/admin/dashboard">{t('nav.dashboard')}</Link>,
     },
-    ...(user?.role === 'superadmin' ? [{
-      key: 'system-environment',
-      icon: <SettingOutlined />,
-      label: <Link to="/admin/system/environment">{t('nav.systemEnvironment')}</Link>,
-    }] : []),
-
     // ── Playground (collapsible submenu) ──────────────────────────────────────
     {
       key: 'grp-playground',
@@ -270,21 +244,31 @@ const App: React.FC = () => {
       ],
     },
 
-    // ── Observability (collapsible submenu) ───────────────────────────────────
+    // ── System management (collapsible submenu) ───────────────────────────────
     {
-      key: 'grp-observability',
-      icon: <FileTextOutlined />,
-      label: t('nav.group.observability'),
+      key: 'grp-system',
+      icon: <SettingOutlined />,
+      label: t('nav.group.system'),
       children: [
+        ...(user?.role === 'superadmin' ? [{
+          key: 'system-environment',
+          icon: <SettingOutlined />,
+          label: <Link to="/admin/system/environment">{t('nav.systemEnvironment')}</Link>,
+        }] : []),
         {
           key: 'logs',
           icon: <FileTextOutlined />,
-          label: <Link to="/admin/logs">{t('nav.logsAdmin')}</Link>,
+          label: <Link to="/admin/logs">{t('nav.auditLogs')}</Link>,
         },
         {
           key: 'notifications',
           icon: <BellOutlined />,
           label: <Link to="/admin/notifications">{t('nav.notificationsAdmin')}</Link>,
+        },
+        {
+          key: 'system-version',
+          icon: <InfoCircleOutlined />,
+          label: <Link to="/admin/system/version">{t('nav.systemVersion')}</Link>,
         },
       ],
     },
@@ -306,12 +290,6 @@ const App: React.FC = () => {
           items={menuItems}
           style={{ borderRight: 0, paddingBottom: 8 }}
         />
-        {/* Version badge at bottom of sidebar */}
-        {systemVersion && (
-          <div style={{ padding: '10px 16px', borderTop: '1px solid #2a2a3e', textAlign: 'center' }}>
-            <Typography.Text style={{ color: '#888', fontSize: 11 }}>{systemVersion}</Typography.Text>
-          </div>
-        )}
       </Sider>
 
       <Layout style={{ marginLeft: 220 }}>
@@ -327,19 +305,6 @@ const App: React.FC = () => {
               ]}
             />
           </Space>
-
-          <Popconfirm
-            title={t('system.restartConfirmTitle')}
-            description={t('system.restartConfirmDesc')}
-            okText={t('system.restart')}
-            cancelText={t('common.cancel')}
-            okButtonProps={{ danger: true }}
-            onConfirm={handleRestartRouter}
-          >
-            <Button danger icon={<PoweroffOutlined />} loading={restartLoading}>
-              {t('system.restart')}
-            </Button>
-          </Popconfirm>
 
           <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
             <Button type="text" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -372,6 +337,7 @@ const App: React.FC = () => {
               <Route path="/admin/users"          element={<RequireAuth><UsersAdminPage /></RequireAuth>} />
               <Route path="/admin/profile"        element={<RequireAuth><ProfilePage /></RequireAuth>} />
               <Route path="/admin/system/environment" element={<RequireAuth><SystemEnvironmentPage /></RequireAuth>} />
+              <Route path="/admin/system/version" element={<RequireAuth><SystemVersionPage /></RequireAuth>} />
               <Route path="*"                     element={<Navigate to="/admin/dashboard" replace />} />
             </Routes>
           </Suspense>
