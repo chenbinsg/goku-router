@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Modal, Form, Input, message, Card, Popconfirm, Space, Select } from 'antd';
+import { Table, Button, Modal, Form, InputNumber, message, Card, Popconfirm, Space, Select } from 'antd';
 import { deleteRouteRule, getModels, getProviders, getRouteRules, saveRouteRule } from '../api';
 import { Model, Provider, RouteRule } from '../types';
 import { useI18n } from '../i18n';
@@ -40,6 +40,14 @@ const RoutingAdminPage: React.FC = () => {
   const modelOptions = Array.from(new Set(activeModels.map((model) => model.modelId))).sort();
   const selectedModelId = Form.useWatch('modelId', form);
   const preferredProviderId = Form.useWatch('preferredProviderId', form);
+  const timeoutMsValue = Form.useWatch('timeoutMs', form);
+
+  const formatTimeout = (value?: number | null) => {
+    if (!value || value <= 0) return '—';
+    const seconds = value / 1000;
+    const secondsLabel = Number.isInteger(seconds) ? `${seconds}` : seconds.toFixed(1);
+    return `${value.toLocaleString()} ms (${secondsLabel}s)`;
+  };
   const matchingModelMappings = selectedModelId
     ? activeModels.filter((model) => model.modelId === selectedModelId)
     : [];
@@ -91,6 +99,7 @@ const RoutingAdminPage: React.FC = () => {
       title: t('routing.timeout'),
       dataIndex: 'timeoutMs',
       key: 'timeoutMs',
+      render: (value: number) => formatTimeout(value),
     },
     {
       title: 'Actions',
@@ -233,8 +242,24 @@ const RoutingAdminPage: React.FC = () => {
                 ))}
             </Select>
           </Form.Item>
-          <Form.Item label={t('routing.timeoutMs')} name="timeoutMs">
-            <Input />
+          <Form.Item
+            label={t('routing.timeoutMs')}
+            name="timeoutMs"
+            rules={[{ required: true, message: t('routing.timeoutRequired') }]}
+            extra={
+              timeoutMsValue && Number(timeoutMsValue) > 0
+                ? t('routing.timeoutHelp').replace('{s}', String(Number(timeoutMsValue) / 1000))
+                : t('routing.timeoutHelpHint')
+            }
+          >
+            <InputNumber<number>
+              min={1000}
+              max={600000}
+              step={1000}
+              style={{ width: '100%' }}
+              formatter={(value) => (value ? `${Number(value).toLocaleString()}` : '')}
+              parser={(value) => Number((value || '').replace(/[^\d]/g, ''))}
+            />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit">
