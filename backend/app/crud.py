@@ -69,6 +69,23 @@ def _record_audit_log(db: Session, action: str, details: str):
     )
 
 
+def _fit_error_code(message: str | None) -> str | None:
+    """Fit a free-form error message into RequestLog.error_code.
+
+    The column holds a short code, but a routing failure puts the provider's
+    full message there. Overflowing it raises DataError on commit, which rolls
+    back the whole transaction — including the audit log added just before —
+    and replaces the real provider error with a database error, hiding the
+    actual cause from every caller. Truncate instead; the untruncated message
+    is preserved in the audit log written alongside it.
+    """
+    if message is None:
+        return None
+    limit = models.RequestLog.__table__.c.error_code.type.length or 64
+    text = str(message)
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
 def _write_billing_record(
     db: Session,
     *,
@@ -2973,7 +2990,7 @@ def _execute_routed_chat_completion(
         cost_amount=0,
         provider_reported_cost=0,
         fallback_used=len(candidates) > 1,
-        error_code=last_error,
+        error_code=_fit_error_code(last_error),
         route_trace_json=json.dumps(route_trace, ensure_ascii=False),
     )
     db.add(failed_log)
