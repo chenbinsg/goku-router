@@ -301,6 +301,15 @@ def ensure_schema(db: Session):
             if column_name not in existing_columns:
                 db.execute(text(statement))
                 changed = True
+
+    # One-time purge: prompt_cache_entries accumulated with no TTL/opt-out
+    # before prompt_cache_enabled (default off) landed. Clear stale rows once
+    # per environment; the marker column makes this idempotent across restarts.
+    if "cache_purged_20260802" not in table_columns.get("prompt_cache_entries", set()):
+        db.execute(text("DELETE FROM prompt_cache_entries"))
+        db.execute(text("ALTER TABLE prompt_cache_entries ADD COLUMN cache_purged_20260802 BOOLEAN DEFAULT 1"))
+        changed = True
+
     if changed:
         db.commit()
 
@@ -2748,11 +2757,15 @@ def _execute_routed_chat_completion(
                     t["provider"], t["reject_reason"], t["estimated_prompt_tokens"], t["max_input_tokens"])
         raise ValueError("NO_AVAILABLE_PROVIDER")
     for index, (provider, model_mapping) in enumerate(candidates):
-        cache_entry = _get_prompt_cache_entry(
-            db=db,
-            cache_key=cache_key,
-            provider_name=provider.name,
-            resolved_model=model_mapping.model_id,
+        cache_entry = (
+            _get_prompt_cache_entry(
+                db=db,
+                cache_key=cache_key,
+                provider_name=provider.name,
+                resolved_model=model_mapping.model_id,
+            )
+            if settings.prompt_cache_enabled
+            else None
         )
         if cache_entry is not None:
             latency = 1.0
@@ -2918,14 +2931,15 @@ def _execute_routed_chat_completion(
                 route_trace_json=json.dumps(route_trace, ensure_ascii=False),
             )
             db.add(request_log)
-            _upsert_prompt_cache_entry(
-                db=db,
-                cache_key=cache_key,
-                sticky_key=sticky_key,
-                provider_name=provider.name,
-                resolved_model=model_mapping.model_id,
-                result=result,
-            )
+            if settings.prompt_cache_enabled:
+                _upsert_prompt_cache_entry(
+                    db=db,
+                    cache_key=cache_key,
+                    sticky_key=sticky_key,
+                    provider_name=provider.name,
+                    resolved_model=model_mapping.model_id,
+                    result=result,
+                )
             if api_key_label:
                 db_key = db.query(models.RouterApiKey).filter(models.RouterApiKey.name == api_key_label).first()
                 if db_key is not None:

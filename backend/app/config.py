@@ -30,6 +30,7 @@ class Settings(BaseSettings):
         "mcp_search=300000,"
         "batch=600000"
     )
+    prompt_cache_enabled: bool = False  # exact-match, no-TTL response cache; opt-in via env
 
     model_config = SettingsConfigDict(env_prefix="", env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
