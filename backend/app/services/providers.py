@@ -16,6 +16,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 import json
+import os
 import uuid
 
 import httpx
@@ -230,13 +231,20 @@ def _messages_for_provider(provider: Provider, request: schemas.ChatCompletionRe
     if provider.name != "openrouter":
         return messages
 
+    # The system→user fold below was added for a gateway that rejected system-role
+    # messages. The current Qwen/vLLM backend accepts the system role fine, and folding
+    # the large system prompt into the user turn measurably wrecks instruction-following
+    # (skill rules ignored, malformed tool JSON — measured ~2/12 vs ~10/12 bad). Preserve
+    # the system role by default; opt back into folding only if a backend truly rejects it.
+    if os.environ.get("OPENROUTER_FOLD_SYSTEM", "").strip().lower() not in ("1", "true", "yes"):
+        return messages
+
     system_messages = [message for message in messages if message.get("role") == "system"]
     if not system_messages:
         return messages
 
-    # The hosted Qwen/vLLM gateway behind this provider rejects system-role
-    # messages. Preserve the instruction text by folding system blocks into the
-    # first user turn; if there is no user turn, convert the last system block.
+    # Fold system blocks into the first user turn; if there is no user turn, convert
+    # the last system block.
     system_text = "\n\n".join(
         _extract_text_content(message.get("content"))
         for message in system_messages
