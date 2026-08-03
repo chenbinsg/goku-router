@@ -226,25 +226,13 @@ def _execute_mock_chat_completion(
     )
 
 
-def _messages_for_provider(provider: Provider, request: schemas.ChatCompletionRequest) -> list[dict[str, Any]]:
-    messages = [message.model_dump(exclude_none=True) for message in request.messages]
-    if provider.name != "openrouter":
-        return messages
-
-    # The system→user fold below was added for a gateway that rejected system-role
-    # messages. The current Qwen/vLLM backend accepts the system role fine, and folding
-    # the large system prompt into the user turn measurably wrecks instruction-following
-    # (skill rules ignored, malformed tool JSON — measured ~2/12 vs ~10/12 bad). Preserve
-    # the system role by default; opt back into folding only if a backend truly rejects it.
-    if os.environ.get("OPENROUTER_FOLD_SYSTEM", "").strip().lower() not in ("1", "true", "yes"):
-        return messages
-
+def _fold_system_into_user(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Fold system-role blocks into the first user turn — for backends whose chat
+    template rejects the system role. If there is no user turn, convert the last
+    system block to a user message."""
     system_messages = [message for message in messages if message.get("role") == "system"]
     if not system_messages:
         return messages
-
-    # Fold system blocks into the first user turn; if there is no user turn, convert
-    # the last system block.
     system_text = "\n\n".join(
         _extract_text_content(message.get("content"))
         for message in system_messages
@@ -259,13 +247,38 @@ def _messages_for_provider(provider: Provider, request: schemas.ChatCompletionRe
         user_query = dict(system_messages[-1])
         user_query["role"] = "user"
         return [user_query]
-
     if system_text:
         user_query = dict(normalized[first_user_idx])
         user_text = _extract_text_content(user_query.get("content"))
         user_query["content"] = f"{system_text}\n\n{user_text}" if user_text else system_text
         normalized[first_user_idx] = user_query
     return normalized
+
+
+def _is_system_role_rejection(status_code: int, body: str) -> bool:
+    """Heuristic: does this 4xx look like the backend rejecting a system-role message
+    (e.g. a chat template with no system slot)? Kept scoped to 4xx + 'system' + a
+    role/template/support keyword to avoid folding on unrelated 400s."""
+    if status_code not in (400, 422):
+        return False
+    b = (body or "").lower()
+    if "system" not in b:
+        return False
+    return any(k in b for k in ("role", "template", "not support", "unsupported", "not allowed", "cannot"))
+
+
+def _messages_for_provider(provider: Provider, request: schemas.ChatCompletionRequest) -> list[dict[str, Any]]:
+    messages = [message.model_dump(exclude_none=True) for message in request.messages]
+    if provider.name != "openrouter":
+        return messages
+    # The current Qwen/vLLM backend accepts the system role, and folding the large system
+    # prompt into the user turn measurably wrecks instruction-following (~2/12 vs ~10/12
+    # malformed). So preserve the system role by default. If a backend genuinely rejects it,
+    # the call path AUTO-DEGRADES (folds + retries once) on the rejection error; setting
+    # OPENROUTER_FOLD_SYSTEM=true folds eagerly, skipping the failed first attempt.
+    if os.environ.get("OPENROUTER_FOLD_SYSTEM", "").strip().lower() in ("1", "true", "yes"):
+        return _fold_system_into_user(messages)
+    return messages
 
 
 # ── OpenAI-compatible adapter (covers vLLM, Ollama, OpenAI, DeepSeek, etc.) ───
@@ -384,12 +397,33 @@ def _execute_openai_compatible_chat_completion(
             "latency_ms": elapsed_ms, "req_msgs": num_messages,
             "req_bytes": request_bytes, "resp_bytes": response_bytes,
         })
-        try:
-            response.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise ProviderExecutionError(
-                f"Provider {provider.name} request failed: {exc}"
-            ) from exc
+        # Auto-degrade: if the backend rejected the system role and we sent it un-folded
+        # (the default), fold the system prompt into the first user turn and retry ONCE.
+        if (provider.name == "openrouter"
+                and any(isinstance(m, dict) and m.get("role") == "system" for m in payload["messages"])
+                and _is_system_role_rejection(response.status_code, body_preview)):
+            payload["messages"] = _fold_system_into_user(payload["messages"])
+            started_at = time.perf_counter()
+            try:
+                response = httpx.post(url, json=payload, headers=headers, timeout=timeout)
+            except httpx.HTTPError as exc:
+                raise ProviderExecutionError(f"Provider {provider.name} request failed: {exc}") from exc
+            elapsed_ms = round((time.perf_counter() - started_at) * 1000, 1)
+            response_bytes = len(getattr(response, "content", b"") or b"")
+            _emit_call_log({
+                "evt": "llm_call", "ok": bool(response.is_success), "task_id": taskid,
+                "trace_id": trace_id, "provider": provider.name,
+                "model": model.provider_model_name, "status": response.status_code,
+                "note": "auto-degraded: system folded into user, retried",
+                "latency_ms": elapsed_ms, "req_msgs": num_messages,
+            })
+        if not response.is_success:
+            try:
+                response.raise_for_status()
+            except httpx.HTTPError as exc:
+                raise ProviderExecutionError(
+                    f"Provider {provider.name} request failed: {exc}"
+                ) from exc
 
     data = response.json()
     choices = data.get("choices") or []

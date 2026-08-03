@@ -85,7 +85,11 @@ def test_chat_completion_honors_request_level_provider_order_without_fallback():
     assert payload["fallback_used"] is False
 
 
-def test_chat_completion_hits_prompt_cache_on_second_request():
+def test_chat_completion_hits_prompt_cache_on_second_request(monkeypatch):
+    # The prompt cache is opt-in (prompt_cache_enabled defaults to False since the
+    # cache-off change); enable it for this test which exercises the cache path.
+    from app.config import settings
+    monkeypatch.setattr(settings, "prompt_cache_enabled", True)
     request_payload = {
         "model": "model1",
         "messages": [{"role": "user", "content": "Cache this prompt"}],

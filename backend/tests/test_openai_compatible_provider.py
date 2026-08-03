@@ -4,13 +4,17 @@ from app.services import providers
 
 
 class DummyResponse:
-    def __init__(self, payload):
+    def __init__(self, payload, status_code=200, text="{}"):
         self._payload = payload
-        self.is_success = True
-        self.status_code = 200
+        self.status_code = status_code
+        self.is_success = 200 <= status_code < 300
         self.content = b"{}"
+        self.text = text
 
     def raise_for_status(self):
+        if not self.is_success:
+            import httpx
+            raise httpx.HTTPError(f"HTTP {self.status_code}")
         return None
 
     def json(self):
@@ -117,6 +121,7 @@ def test_openrouter_provider_converts_system_only_prompt_to_user(monkeypatch):
 
     monkeypatch.setenv("PROVIDER_OPENROUTER_BASE_URL", "https://example.test/v1")
     monkeypatch.setenv("PROVIDER_OPENROUTER_API_KEY", "secret-key")
+    monkeypatch.setenv("OPENROUTER_FOLD_SYSTEM", "true")
     monkeypatch.setattr(providers.httpx, "post", fake_post)
 
     result = providers.execute_chat_completion(provider, model, request)
@@ -167,6 +172,7 @@ def test_openrouter_provider_merges_system_prompt_into_first_user(monkeypatch):
 
     monkeypatch.setenv("PROVIDER_OPENROUTER_BASE_URL", "https://example.test/v1")
     monkeypatch.setenv("PROVIDER_OPENROUTER_API_KEY", "secret-key")
+    monkeypatch.setenv("OPENROUTER_FOLD_SYSTEM", "true")
     monkeypatch.setattr(providers.httpx, "post", fake_post)
 
     result = providers.execute_chat_completion(provider, model, request)
@@ -174,6 +180,76 @@ def test_openrouter_provider_merges_system_prompt_into_first_user(monkeypatch):
     assert captured["json"]["messages"] == [
         {"role": "user", "content": "Follow policy.\n\nReply OK only."}
     ]
+
+
+def test_openrouter_provider_preserves_system_role_by_default(monkeypatch):
+    """New default: system role is preserved (NOT folded into user)."""
+    provider = Provider(name="openrouter", adapter_type="openai_compatible",
+                        status="active", health_status="healthy", priority=10)
+    model = ModelCatalog(model_id="qwen3.6", provider_id=1,
+                         provider_model_name="Qwen3.6-35B-A3B-FP8", status="active")
+    request = schemas.ChatCompletionRequest(
+        model="qwen3.6",
+        messages=[
+            schemas.ChatMessage(role="system", content="Follow policy."),
+            schemas.ChatMessage(role="user", content="Reply OK only."),
+        ],
+    )
+    captured = {}
+
+    def fake_post(url, json, headers, timeout):
+        captured["json"] = json
+        return DummyResponse({"choices": [{"message": {"content": "OK"}}],
+                              "usage": {"prompt_tokens": 5, "completion_tokens": 1}})
+
+    monkeypatch.delenv("OPENROUTER_FOLD_SYSTEM", raising=False)
+    monkeypatch.setenv("PROVIDER_OPENROUTER_BASE_URL", "https://example.test/v1")
+    monkeypatch.setenv("PROVIDER_OPENROUTER_API_KEY", "secret-key")
+    monkeypatch.setattr(providers.httpx, "post", fake_post)
+
+    providers.execute_chat_completion(provider, model, request)
+
+    assert captured["json"]["messages"] == [
+        {"role": "system", "content": "Follow policy."},
+        {"role": "user", "content": "Reply OK only."},
+    ]
+
+
+def test_openrouter_provider_auto_degrades_on_system_rejection(monkeypatch):
+    """If the backend rejects the system role, fold system into user and retry once."""
+    provider = Provider(name="openrouter", adapter_type="openai_compatible",
+                        status="active", health_status="healthy", priority=10)
+    model = ModelCatalog(model_id="qwen3.6", provider_id=1,
+                         provider_model_name="Qwen3.6-35B-A3B-FP8", status="active")
+    request = schemas.ChatCompletionRequest(
+        model="qwen3.6",
+        messages=[
+            schemas.ChatMessage(role="system", content="Follow policy."),
+            schemas.ChatMessage(role="user", content="Reply OK only."),
+        ],
+    )
+    calls = []
+
+    def fake_post(url, json, headers, timeout):
+        calls.append(json["messages"])
+        if len(calls) == 1:
+            return DummyResponse({}, status_code=400,
+                                 text="System role is not supported by this model's chat template")
+        return DummyResponse({"choices": [{"message": {"content": "OK"}}],
+                              "usage": {"prompt_tokens": 5, "completion_tokens": 1}})
+
+    monkeypatch.delenv("OPENROUTER_FOLD_SYSTEM", raising=False)
+    monkeypatch.setenv("PROVIDER_OPENROUTER_BASE_URL", "https://example.test/v1")
+    monkeypatch.setenv("PROVIDER_OPENROUTER_API_KEY", "secret-key")
+    monkeypatch.setattr(providers.httpx, "post", fake_post)
+
+    result = providers.execute_chat_completion(provider, model, request)
+
+    assert len(calls) == 2  # first (with system) failed, retried once
+    # first attempt kept the system role; the retry folded it into the user turn
+    assert calls[0][0]["role"] == "system"
+    assert calls[1] == [{"role": "user", "content": "Follow policy.\n\nReply OK only."}]
+    assert result.completion == "OK"
     assert result.completion == "OK"
 
 
