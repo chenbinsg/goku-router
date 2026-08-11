@@ -23,6 +23,12 @@ from .services.secrets import decrypt_secret, encrypt_secret
 logger_crud = logging.getLogger(__name__)
 
 
+# A prompt guardrail below this is not a policy choice — it cannot hold even a
+# minimal agent request (system prompt + task + one tool result), so every
+# request would be truncated. Writes below it are warned about, not rejected:
+# tests legitimately use tiny budgets to exercise the compression path.
+IMPLAUSIBLE_PROMPT_CHARS = 2000
+
 DEFAULT_ROUTE_SCORING_WEIGHTS: dict[str, dict[str, float]] = {
     "tool_use": {"capability": 0.5, "latency": 0.3, "cost": 0.2},
     "multimodal_vision": {"capability": 0.5, "latency": 0.3, "cost": 0.2},
@@ -3857,25 +3863,63 @@ def list_workspace_guardrail_configs(db: Session):
     ]
 
 
+def _warn_if_prompt_limit_is_implausible(max_prompt_chars: int | None, scope: str) -> None:
+    """Flag a prompt limit far too small to hold a real request.
+
+    Agent requests carry a system prompt, the task, and tool results — tens of
+    thousands of characters. A limit in the hundreds silently truncates every
+    request, and the symptom (the model answering as if it received nothing)
+    looks nothing like a misconfiguration. Rows of 80 and 180 were found in a
+    working deployment.
+    """
+    if max_prompt_chars is not None and max_prompt_chars < IMPLAUSIBLE_PROMPT_CHARS:
+        logger_crud.warning(
+            "Guardrail for %s sets max_prompt_chars=%d, below the plausible "
+            "minimum of %d — every non-trivial request will be truncated",
+            scope, max_prompt_chars, IMPLAUSIBLE_PROMPT_CHARS,
+        )
+
+
 def create_workspace_guardrail_config(db: Session, payload: schemas.WorkspaceGuardrailConfigCreate):
     ensure_schema(db)
-    row = models.WorkspaceGuardrailConfig(
-        organization_id=payload.organization_id,
-        project_id=payload.project_id,
-        allowed_providers=_list_to_csv(payload.allowed_providers) if payload.allowed_providers is not None else None,
-        denied_providers=_list_to_csv(payload.denied_providers) if payload.denied_providers is not None else None,
-        blocked_words=_list_to_csv(payload.blocked_words) if payload.blocked_words is not None else None,
-        max_prompt_chars=payload.max_prompt_chars,
-        retention_mode=payload.retention_mode,
+    scope = f"org={payload.organization_id} project={payload.project_id}"
+    _warn_if_prompt_limit_is_implausible(payload.max_prompt_chars, scope)
+    # One config per (organization, project). The resolver picks the HIGHEST id
+    # for a scope, so a second POST for the same scope silently shadowed the
+    # first — which is how an 80-char prompt limit came to be in effect on a
+    # working deployment, invisible behind two older rows. Upsert instead of
+    # stacking rows that can never all apply.
+    row = (
+        db.query(models.WorkspaceGuardrailConfig)
+        .filter(
+            models.WorkspaceGuardrailConfig.organization_id == payload.organization_id,
+            models.WorkspaceGuardrailConfig.project_id == payload.project_id,
+        )
+        .order_by(models.WorkspaceGuardrailConfig.id.asc())
+        .first()
     )
-    db.add(row)
+    is_new = row is None
+    if is_new:
+        row = models.WorkspaceGuardrailConfig(
+            organization_id=payload.organization_id,
+            project_id=payload.project_id,
+        )
+        db.add(row)
+    row.allowed_providers = _list_to_csv(payload.allowed_providers) if payload.allowed_providers is not None else None
+    row.denied_providers = _list_to_csv(payload.denied_providers) if payload.denied_providers is not None else None
+    row.blocked_words = _list_to_csv(payload.blocked_words) if payload.blocked_words is not None else None
+    row.max_prompt_chars = payload.max_prompt_chars
+    row.retention_mode = payload.retention_mode
     _record_audit_log(
         db,
-        "workspace_guardrail_created",
-        f"Created workspace guardrail for org={payload.organization_id} project={payload.project_id}",
+        "workspace_guardrail_created" if is_new else "workspace_guardrail_updated",
+        f"{'Created' if is_new else 'Replaced'} workspace guardrail for {scope}",
     )
     db.commit()
-    return list_workspace_guardrail_configs(db)[0]
+    for item in list_workspace_guardrail_configs(db):
+        if item.id == row.id:
+            return item
+    raise ValueError(f"INVALID_WORKSPACE_GUARDRAIL: {row.id}")
 
 
 def update_workspace_guardrail_config(db: Session, config_id: int, payload: schemas.WorkspaceGuardrailConfigCreate):
@@ -3890,6 +3934,9 @@ def update_workspace_guardrail_config(db: Session, config_id: int, payload: sche
     row.blocked_words = _list_to_csv(payload.blocked_words) if payload.blocked_words is not None else None
     row.max_prompt_chars = payload.max_prompt_chars
     row.retention_mode = payload.retention_mode
+    _warn_if_prompt_limit_is_implausible(
+        payload.max_prompt_chars, f"org={payload.organization_id} project={payload.project_id}"
+    )
     _record_audit_log(db, "workspace_guardrail_updated", f"Updated workspace guardrail {config_id}")
     db.commit()
     items = list_workspace_guardrail_configs(db)
@@ -3919,6 +3966,7 @@ def update_guardrail_config(db: Session, update: schemas.GuardrailConfigUpdate):
     config.blocked_words = _list_to_csv(update.blocked_words)
     config.max_prompt_chars = update.max_prompt_chars
     config.retention_mode = update.retention_mode
+    _warn_if_prompt_limit_is_implausible(update.max_prompt_chars, "global guardrail")
     _record_audit_log(db, "guardrail_updated", "Updated guardrail configuration")
     db.commit()
     return get_guardrail_config(db)
