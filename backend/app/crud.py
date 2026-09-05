@@ -1119,44 +1119,125 @@ def _truncate_message_content(content, limit: int):
     return text_value, len(text_value)
 
 
+TRUNCATION_MARKER = "\n…[内容因长度限制被截断 / content truncated by length guardrail]"
+
+
+def _content_text_length(content) -> int:
+    """Length of the text a message contributes to the prompt budget."""
+    if isinstance(content, str):
+        return len(content)
+    if isinstance(content, list):
+        return sum(
+            len(str(item.get("text", "")))
+            for item in content
+            if isinstance(item, dict) and item.get("type") == "text"
+        )
+    return len(str(content))
+
+
+def _truncate_with_marker(content, limit: int):
+    """``_truncate_message_content`` plus an explicit marker when text was cut.
+
+    A silently shortened message is indistinguishable from a genuinely short
+    one: the model cannot tell that a tool returned data it never received, so
+    it invents a value or re-runs the same call. The marker makes the loss
+    visible to the model.
+    """
+    original_len = _content_text_length(content)
+    new_content, used = _truncate_message_content(content, limit)
+    if _content_text_length(new_content) >= original_len:
+        return new_content, used, False
+    if isinstance(new_content, str):
+        return new_content + TRUNCATION_MARKER, used, True
+    if isinstance(new_content, list):
+        return new_content + [{"type": "text", "text": TRUNCATION_MARKER}], used, True
+    return str(new_content) + TRUNCATION_MARKER, used, True
+
+
+def _clone_message(message: schemas.ChatMessage, content) -> schemas.ChatMessage:
+    """Rebuild a message with new content, keeping tool-call linkage intact.
+
+    ``tool_calls``/``tool_call_id`` MUST survive compression: an assistant
+    tool_calls message whose ids are gone, or a tool result that no longer
+    names the call it answers, makes every OpenAI-compatible provider reject
+    the request ("messages with role 'tool' must be a response to a preceding
+    message with 'tool_calls'") or silently mis-associate the results.
+    """
+    return schemas.ChatMessage(
+        role=message.role,
+        content=content,
+        tool_calls=message.tool_calls,
+        tool_call_id=message.tool_call_id,
+        name=message.name,
+    )
+
+
+def _compression_priority(messages: list[schemas.ChatMessage]) -> list[int]:
+    """Message indices ordered by how much this turn needs them.
+
+    Budget is handed out in this order — NOT in document order. Document order
+    gave the (often huge) system prompt first claim and left nothing for the
+    user's actual question or the tool results, which is how a fully-answered
+    turn reached the model as a bare instruction with no task and no data.
+
+    1. First user message  — the real task. In an agent loop the LAST user
+       message is usually a framework-injected nudge ("deliver via final_answer"),
+       so reserving that one instead loses the question entirely.
+    2. Newest assistant tool_calls + the tool results answering it — the
+       evidence this turn is supposed to act on.
+    3. Last user message   — the current instruction.
+    4. System messages     — instructions; degrade more gracefully than data.
+    5. Everything else, newest first — old history is the first thing to lose.
+    """
+    order: list[int] = []
+
+    def add(idx) -> None:
+        for i in idx if isinstance(idx, list) else [idx]:
+            if i is not None and i not in order:
+                order.append(i)
+
+    total = len(messages)
+    add(next((i for i, m in enumerate(messages) if m.role == "user"), None))
+
+    for i in range(total - 1, -1, -1):
+        if messages[i].role == "assistant" and messages[i].tool_calls:
+            add([i] + [j for j in range(i + 1, total) if messages[j].role == "tool"])
+            break
+
+    add(next((i for i in range(total - 1, -1, -1) if messages[i].role == "user"), None))
+    add([i for i, m in enumerate(messages) if m.role == "system"])
+    add(list(range(total - 1, -1, -1)))
+    return order
+
+
 def _compress_request_messages(request: schemas.ChatCompletionRequest, max_chars: int):
     prompt = _extract_prompt_from_request(request)
     if len(prompt) <= max_chars:
         return
 
     messages = request.messages
-    # The most recent user message carries the actual request — it must never be
-    # dropped. Reserve its budget first, then share whatever remains across the
-    # other messages (system prompt + prior history) in order. This fixes the bug
-    # where a long system prompt could consume the entire budget and the user's
-    # message got silently discarded, leaving the model with no question to answer.
-    last_user_idx = None
-    for i in range(len(messages) - 1, -1, -1):
-        if messages[i].role == "user":
-            last_user_idx = i
-            break
+    remaining = max(0, max_chars)
+    rebuilt: dict[int, object] = {}
+    truncated_any = False
 
-    if last_user_idx is not None:
-        preserved_content, preserved_used = _truncate_message_content(
-            messages[last_user_idx].content, max_chars
+    for idx in _compression_priority(messages):
+        new_content, used, was_truncated = _truncate_with_marker(
+            messages[idx].content, remaining
         )
-    else:
-        preserved_content, preserved_used = None, 0
-
-    remaining = max(0, max_chars - preserved_used)
-    compressed_messages: list[schemas.ChatMessage] = []
-    for idx, message in enumerate(messages):
-        if idx == last_user_idx:
-            compressed_messages.append(
-                schemas.ChatMessage(role=message.role, content=preserved_content)
-            )
-            continue
-        new_content, used = _truncate_message_content(message.content, remaining)
         remaining -= used
-        compressed_messages.append(
-            schemas.ChatMessage(role=message.role, content=new_content)
+        rebuilt[idx] = new_content
+        truncated_any = truncated_any or was_truncated
+
+    if truncated_any:
+        logger_crud.warning(
+            "Prompt exceeded max_prompt_chars (%d > %d) — content was truncated "
+            "before reaching the provider",
+            len(prompt), max_chars,
         )
-    request.messages = compressed_messages
+
+    request.messages = [
+        _clone_message(message, rebuilt[idx]) for idx, message in enumerate(messages)
+    ]
 
 
 def _infer_required_capabilities(request: schemas.ChatCompletionRequest) -> set[str]:
