@@ -75,7 +75,13 @@ class GuardrailPolicyPreset(Base):
     allowed_providers = Column(Text, nullable=True)
     denied_providers = Column(Text, nullable=True)
     blocked_words = Column(Text, nullable=True)
-    max_prompt_chars = Column(Integer, nullable=False, default=4000)
+    # Same reasoning as GuardrailConfig below, and the same number: this is a
+    # cost/abuse guardrail, not a model context limit. At 4000 a preset silently
+    # truncated the prompt mid-conversation — the compressor cuts by priority, so
+    # what a tool actually returned was the first thing to go and the model was
+    # left inventing values it had "seen". A preset must not be stricter than the
+    # global default by accident.
+    max_prompt_chars = Column(Integer, nullable=False, default=200000)
     retention_mode = Column(String(64), nullable=False, default="standard")
 
 

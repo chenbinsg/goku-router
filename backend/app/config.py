@@ -23,8 +23,20 @@ class Settings(BaseSettings):
     router_secret_key: str = ""
     provider_timeout_internal_s: float = 15.0
     provider_timeout_external_s: float = 300.0
+    # tool_use covers EVERY agent turn — classify_workload returns it for any
+    # request carrying `tools`, which is the whole ReAct loop. 180s was already
+    # the tightest tier while being the one that runs most, and a turn now
+    # carries more tool output than it used to (goku-core raised its
+    # tool-result injection floor), so generation takes longer for the same
+    # work. Measured locally: a step ran 182.0s against the 180s cap and came
+    # back as "Provider … The read operation timed out", which reads like an
+    # outage and is not one.
+    #
+    # Aligned with goku-core's own LLM_TIMEOUT (300s) so the two ends agree on
+    # how long a turn may take; the caller should be the one to give up.
+    # Override per environment with REQUEST_TYPE_TIMEOUT_MS — no code change.
     request_type_timeout_ms: str = (
-        "tool_use=180000,"
+        "tool_use=300000,"
         "long_context=300000,"
         "report=300000,"
         "mcp_search=300000,"
