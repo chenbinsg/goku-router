@@ -1041,11 +1041,17 @@ def _select_provider_from_trace(
     ]
     if not accepted_candidates:
         return None
+    # **显式配置压过启发式。** 人在路由规则里写了 Preferred/Backup，打分不该悄悄
+    # 推翻它 —— 尤其当界面上完全看不出被推翻了。此前 route_score 是首要键，
+    # preferred_order_index 只是它的第二级 tie-break，等于主备形同虚设。
+    #
+    # 没配主备时 preferred_order_index 全是 None（并列 9999），排序自然退回按分数
+    # 决定 —— 两种模式各司其职：配了就照配的走，没配才让启发式挑。
     ranked = sorted(
         accepted_candidates,
         key=lambda item: (
-            -_candidate_score_from_components(item, weights),
             item.get("preferred_order_index") if item.get("preferred_order_index") is not None else 9999,
+            -_candidate_score_from_components(item, weights),
             item.get("priority", 9999),
             item.get("avg_latency_ms", 999999),
         ),
@@ -1529,6 +1535,7 @@ def _build_candidate_trace(
     route_weights: dict[str, float] | None = None,
     sticky_provider_name: str | None = None,
     db: Session | None = None,
+    preferred_names: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     required_capabilities = _infer_required_capabilities(request)
     requested_parameter_names = _requested_parameter_names(request)
@@ -1537,7 +1544,18 @@ def _build_candidate_trace(
     allowed_providers = set(_csv_to_list(guardrails.allowed_providers))
     denied_providers = set(_csv_to_list(guardrails.denied_providers))
     max_price = request.provider.max_price_per_1k if request.provider else None
-    preferred_order = request.provider.order if request.provider and request.provider.order else []
+    # 主备来源：请求体显式指定 > 路由规则的 Preferred/Backup。
+    #
+    # 以前只读 `request.provider.order` —— 而调用方（Core）不发这个字段，于是
+    # `preferred_order_index` 恒为 None，**界面上配的 Preferred/Backup 在打分阶段
+    # 完全不参与**。实测 2026-09-09：Qwen3.8 的路由规则写着「主 openrouter、备
+    # TOKENSTARS」，而每一次请求都被打分判给了 TOKENSTARS，`fallback_used` 还是
+    # false —— 配置页显示的和运行时行为不一致，且无从察觉。
+    preferred_order = (
+        request.provider.order
+        if request.provider and request.provider.order
+        else list(preferred_names or [])
+    )
     preferred_index = {name: index for index, name in enumerate(preferred_order)}
     workload_class = classify_workload(request)
     traces: list[dict[str, Any]] = []
@@ -1619,7 +1637,11 @@ def _filter_and_sort_candidates(
     route_weights: dict[str, float] | None = None,
     sticky_provider_name: str | None = None,
     db: Session | None = None,
+    preferred_names: list[str] | None = None,
 ) -> list[tuple[models.Provider, models.ModelCatalog]]:
+    """**最终 `selected_provider` 出自这里**（调用方取 `[0]`），不是
+    `_select_provider_from_trace` —— 后者只用于回放/实验对比。所以主备名单必须
+    传到这一层，否则改了那边也不生效。"""
     traces = _build_candidate_trace(
         request,
         candidates,
@@ -1627,13 +1649,18 @@ def _filter_and_sort_candidates(
         route_weights,
         sticky_provider_name,
         db=db,
+        preferred_names=preferred_names,
     )
     accepted_names = {
         item["provider"]
         for item in traces
         if item["accepted"]
     }
-    preferred_order = request.provider.order if request.provider and request.provider.order else []
+    preferred_order = (
+        request.provider.order
+        if request.provider and request.provider.order
+        else list(preferred_names or [])
+    )
     preferred_index = {name: index for index, name in enumerate(preferred_order)}
 
     filtered = [
@@ -1776,6 +1803,8 @@ def build_route_decision_trace(
         route_weights,
         sticky_provider_name,
         db=db,
+        preferred_names=[p.name for p in
+                         (route.preferred_provider, route.backup_provider) if p] if route else None,
     )
 
     selected_candidates = _filter_and_sort_candidates(
@@ -1785,6 +1814,8 @@ def build_route_decision_trace(
         route_weights,
         sticky_provider_name,
         db=db,
+        preferred_names=[p.name for p in
+                         (route.preferred_provider, route.backup_provider) if p] if route else None,
     )
 
     selected_provider = selected_candidates[0][0].name if selected_candidates else None
