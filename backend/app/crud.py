@@ -307,16 +307,37 @@ def ensure_schema(db: Session):
         existing_columns = table_columns.get(table_name, set())
         for column_name, statement in statements:
             if column_name not in existing_columns:
-                db.execute(text(statement))
-                changed = True
+                try:
+                    db.execute(text(statement))
+                    changed = True
+                except Exception:
+                    # 单条迁移失败**不能**让整个服务不可用。
+                    #
+                    # ensure_schema 被 seed_demo_data 以及几乎每个 admin/业务读路径
+                    # 调用，此前这里没有任何保护：一条 ALTER 抛异常，就会冒到请求层，
+                    # 于是**每一个落库端点同时 500**，包括 /v1/models 这条业务链路。
+                    # 2026-09-09 生产实测就是这个形状：只有不碰库的 /admin/system/info
+                    # 还活着。一个加列动作把整个路由器打下线，代价与收益完全不成比例。
+                    #
+                    # 失败的后果是那一列不存在，读它的代码需要自己容错（新列一律
+                    # 可空 + getattr）。这比整体不可用好得多。
+                    db.rollback()
+                    logger_crud.exception(
+                        "SCHEMA_MIGRATION_FAILED table=%s column=%s stmt=%s",
+                        table_name, column_name, statement,
+                    )
 
     # One-time purge: prompt_cache_entries accumulated with no TTL/opt-out
     # before prompt_cache_enabled (default off) landed. Clear stale rows once
     # per environment; the marker column makes this idempotent across restarts.
     if "cache_purged_20260802" not in table_columns.get("prompt_cache_entries", set()):
-        db.execute(text("DELETE FROM prompt_cache_entries"))
-        db.execute(text("ALTER TABLE prompt_cache_entries ADD COLUMN cache_purged_20260802 BOOLEAN DEFAULT 1"))
-        changed = True
+        try:
+            db.execute(text("DELETE FROM prompt_cache_entries"))
+            db.execute(text("ALTER TABLE prompt_cache_entries ADD COLUMN cache_purged_20260802 BOOLEAN DEFAULT 1"))
+            changed = True
+        except Exception:
+            db.rollback()
+            logger_crud.exception("SCHEMA_MIGRATION_FAILED table=prompt_cache_entries column=cache_purged_20260802")
 
     if changed:
         db.commit()
