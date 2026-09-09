@@ -266,6 +266,10 @@ def ensure_schema(db: Session, *, force: bool = False):
             ("response_healed", "ALTER TABLE request_logs ADD COLUMN response_healed BOOLEAN DEFAULT 0"),
             ("healing_strategy", "ALTER TABLE request_logs ADD COLUMN healing_strategy VARCHAR(64)"),
             ("created_at", "ALTER TABLE request_logs ADD COLUMN created_at DATETIME"),
+            ("provider_id", "ALTER TABLE request_logs ADD COLUMN provider_id INT"),
+        ],
+        "provider_quality_scores": [
+            ("provider_id", "ALTER TABLE provider_quality_scores ADD COLUMN provider_id INT"),
         ],
         "providers": [
             ("input_cost_per_1k", "ALTER TABLE providers ADD COLUMN input_cost_per_1k FLOAT DEFAULT 0.001"),
@@ -2984,6 +2988,7 @@ def _execute_routed_chat_completion(
                 resolved_model=None,
                 model_catalog_id=None,
                 provider_name=None,
+                provider_id=None,   # 护栏拦截，确实没走到任何 provider
                 sticky_key=sticky_key,
                 cache_key=None,
                 cache_hit=False,
@@ -3064,7 +3069,7 @@ def _execute_routed_chat_completion(
     # 于是**每一条失败的归属都丢了**：真实 provider 的失败数结构性地恒为 0
     # （生产实测 2026-09-09：1,794 条失败全落在 "unknown" 桶，五个真实 provider
     # 一条都没有），provider_failure_spike 告警因此永远不可能对真实 provider 触发。
-    attempted: list[tuple[str, str]] = []
+    attempted: list[tuple[int, str, str]] = []   # (id, name, error)
     for index, (provider, model_mapping) in enumerate(candidates):
         cache_entry = (
             _get_prompt_cache_entry(
@@ -3115,6 +3120,7 @@ def _execute_routed_chat_completion(
                 resolved_model=model_mapping.model_id,
                 model_catalog_id=model_mapping.id,
                 provider_name=provider.name,
+                provider_id=provider.id,
                 sticky_key=sticky_key,
                 cache_key=cache_key,
                 cache_hit=True,
@@ -3223,6 +3229,7 @@ def _execute_routed_chat_completion(
                 resolved_model=model_mapping.model_id,
                 model_catalog_id=model_mapping.id,
                 provider_name=provider.name,
+                provider_id=provider.id,
                 sticky_key=sticky_key,
                 cache_key=cache_key,
                 cache_hit=False,
@@ -3290,7 +3297,7 @@ def _execute_routed_chat_completion(
             provider.health_status = "unhealthy"
             db.commit()
             last_error = str(exc)
-            attempted.append((provider.name, last_error))
+            attempted.append((provider.id, provider.name, last_error))
 
     _record_audit_log(db, "routing_failure", f"Failed to execute request for model {request.model}: {last_error}")
     _create_notification(db, "routing_failure", f"Request for model {request.model} failed after trying all candidates")
@@ -3298,9 +3305,11 @@ def _execute_routed_chat_completion(
     # 完整清单（含每家各自的错）另存进 route_trace，用于事后归因：只看
     # provider_name 无法区分「一家挂了」和「三家全挂了」。
     route_trace["attempted_providers"] = [
-        {"provider": name, "error": _fit_error_code(err)} for name, err in attempted
+        {"provider": name, "provider_id": pid, "error": _fit_error_code(err)}
+        for pid, name, err in attempted
     ]
-    failed_provider_name = attempted[-1][0] if attempted else None
+    failed_provider_id = attempted[-1][0] if attempted else None
+    failed_provider_name = attempted[-1][1] if attempted else None
     failed_log = models.RequestLog(
         request_id=request_id,
         api_key_label=api_key_label,
@@ -3311,6 +3320,7 @@ def _execute_routed_chat_completion(
         resolved_model=None,
         model_catalog_id=None,
         provider_name=failed_provider_name,
+        provider_id=failed_provider_id,
         sticky_key=sticky_key,
         cache_key=cache_key,
         cache_hit=False,

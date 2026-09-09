@@ -185,6 +185,12 @@ class RequestLog(Base):
     requested_model = Column(String(255), nullable=False)
     resolved_model = Column(String(255), nullable=True)
     provider_name = Column(String(255), nullable=True)
+    # provider 的**稳定标识**。provider_name 是人可读的冗余，改名/删除后历史行会
+    # 永久冻结在旧名字上 —— 生产实测 2026-09-09：同一台机器以
+    # local_dalian_openrouter / local-dalian-openrouter 两个名字各自统计，
+    # 平均延迟一个 50,280ms、一个 31,339ms，所有按 provider 的聚合都被劈成两半。
+    # 可空：护栏拦截、全候选失败等情况确实没有 provider。
+    provider_id = Column(Integer, nullable=True, index=True)
     sticky_key = Column(String(255), nullable=True)
     cache_key = Column(String(255), nullable=True)
     cache_hit = Column(Boolean, nullable=False, default=False)
@@ -316,6 +322,10 @@ class ProviderQualityScore(Base):
     __tablename__ = "provider_quality_scores"
     id = Column(Integer, primary_key=True, index=True)
     provider_name = Column(String(255), nullable=False, index=True)
+    # 同上：按 id 关联才不会因改名失联。2026-06-21 写下的 17 行质量分，因为只有
+    # 名字，改名后没有一行能对上现存 provider —— 于是 drift monitor 辛苦算的分
+    # 三个月里一次都没被读到过。
+    provider_id = Column(Integer, nullable=True, index=True)
     workload_class = Column(String(64), nullable=False, index=True)
     # Composite quality score in [0, 1]
     quality_score = Column(Float, nullable=False, default=1.0)

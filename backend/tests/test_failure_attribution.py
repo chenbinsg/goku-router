@@ -64,9 +64,20 @@ class TestTheFailingProviderIsNamed:
         )
 
     def test_every_attempt_is_collected_not_just_the_last(self):
+        """每次尝试都要入册，不只是最后一次 —— 否则无法区分「一家挂了」和
+        「三家全挂了」。
+
+        ⚠ 断言的是「循环里往 attempted 追加、且带上 provider 标识」，不是元组的
+        具体形状。第一版写死了 `attempted.append((provider.name, last_error))`，
+        加 provider_id 时它就误报了 —— 那不是回归，是元组多了一个字段。
+        """
         import inspect
         src = inspect.getsource(crud._execute_routed_chat_completion)
-        assert "attempted.append((provider.name, last_error))" in src
+        assert "attempted.append(" in src, "失败的候选没有入册"
+        appended = src[src.index("attempted.append("):]
+        appended = appended[:appended.index(")\n") + 1]
+        assert "provider." in appended, "入册时没带上 provider 标识"
+        assert "last_error" in appended, "入册时没带上各自的错误"
 
 
 class TestFailuresStayOutOfCostComparison:
