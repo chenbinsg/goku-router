@@ -2971,6 +2971,11 @@ def _execute_routed_chat_completion(
                 logger_crud.warning("NO_AVAILABLE_PROVIDER: provider=%s reject=%s prompt_tokens=%s max_input=%s",
                     t["provider"], t["reject_reason"], t["estimated_prompt_tokens"], t["max_input_tokens"])
         raise ValueError("NO_AVAILABLE_PROVIDER")
+    # 逐个候选记下「谁被试过、报了什么错」。失败日志此前写 provider_name=None，
+    # 于是**每一条失败的归属都丢了**：真实 provider 的失败数结构性地恒为 0
+    # （生产实测 2026-09-09：1,794 条失败全落在 "unknown" 桶，五个真实 provider
+    # 一条都没有），provider_failure_spike 告警因此永远不可能对真实 provider 触发。
+    attempted: list[tuple[str, str]] = []
     for index, (provider, model_mapping) in enumerate(candidates):
         cache_entry = (
             _get_prompt_cache_entry(
@@ -3196,9 +3201,17 @@ def _execute_routed_chat_completion(
             provider.health_status = "unhealthy"
             db.commit()
             last_error = str(exc)
+            attempted.append((provider.name, last_error))
 
     _record_audit_log(db, "routing_failure", f"Failed to execute request for model {request.model}: {last_error}")
     _create_notification(db, "routing_failure", f"Request for model {request.model} failed after trying all candidates")
+    # 一行日志只能署一个名，取**最后尝试的那个** —— 它是最终放弃的直接原因。
+    # 完整清单（含每家各自的错）另存进 route_trace，用于事后归因：只看
+    # provider_name 无法区分「一家挂了」和「三家全挂了」。
+    route_trace["attempted_providers"] = [
+        {"provider": name, "error": _fit_error_code(err)} for name, err in attempted
+    ]
+    failed_provider_name = attempted[-1][0] if attempted else None
     failed_log = models.RequestLog(
         request_id=request_id,
         api_key_label=api_key_label,
@@ -3208,7 +3221,7 @@ def _execute_routed_chat_completion(
         requested_model=request.model,
         resolved_model=None,
         model_catalog_id=None,
-        provider_name=None,
+        provider_name=failed_provider_name,
         sticky_key=sticky_key,
         cache_key=cache_key,
         cache_hit=False,
@@ -4297,17 +4310,25 @@ def _build_cost_optimization_opportunities(
     model_provider_groups: dict[str, dict[str, list[models.RequestLog]]] = {}
     for row in request_logs:
         model_label = row.resolved_model or row.requested_model or "unknown"
-        if row.provider_name is None:
-            # provider_name 为空 = 这个请求**根本没走到任何 provider**（400 护栏
-            # 拦截或 503 全部候选失败）。它不是一家叫 "unknown" 的供应商。
+        if row.provider_name is None or row.status_code >= 400:
+            # 失败请求一律不参与成本比较。
             #
-            # 之前用 `row.provider_name or "unknown"` 把它们并成一桶，而失败请求
-            # 不计费、成本恒为 0，于是这一桶永远是「最便宜的 provider」，建议栏
-            # 里五条有五条在说「把流量迁到 unknown，预计省 98 美元」——
-            # 把「请求全挂了」读成了「这家不要钱」。
+            # 判据有两条，缺一不可：
+            #   · provider_name is None —— 请求根本没走到任何 provider（护栏拦截）；
+            #   · status_code >= 400 —— 走到了但失败了。
             #
-            # ⚠ 这不只是文案难看：ROUTER_AUTO_OPTIMIZE 打开时，drift monitor 会
-            # 照着这类信号自动开 A/B 实验。2026-06-16~21 它开过五天。
+            # 只判第一条不够。失败日志此前写 provider_name=None，两条判据恰好重合，
+            # 所以最初只写了前者；而现在 503 会**如实署上失败的那家 provider**
+            # （为了让 provider_failure_spike 告警能真正触发），于是这些成本为 0 的
+            # 行会重新混进比较 —— 让挂得最多的那家看起来最便宜。
+            #
+            # 原来的病症：`row.provider_name or "unknown"` 把所有失败并成一桶，
+            # 而失败不计费，于是这桶永远是「最便宜的 provider」，生产建议栏里五条
+            # 有五条在说「把流量迁到 unknown，预计省 98 美元」—— 把「请求全挂了」
+            # 读成了「这家不要钱」。
+            #
+            # ⚠ 不只是文案难看：ROUTER_AUTO_OPTIMIZE 打开时 drift monitor 会照着
+            # 这类信号自动开 A/B 实验，它 2026-06-16~21 开过五天。
             continue
         model_provider_groups.setdefault(model_label, {}).setdefault(row.provider_name, []).append(row)
 
