@@ -32,8 +32,16 @@ from app import crud
 
 
 class _P:
-    def __init__(self, name, inp=0.001, out=0.002, latency=1000.0):
+    _next_id = [100]
+
+    def __init__(self, name, inp=0.001, out=0.002, latency=1000.0, pid=None):
         self.name = name
+        # 质量分现在按 **id** 关联，不是名字 —— 名字会随改名失效，那正是这个功能
+        # 三个月不生效的原因（见 test_quality_score_flips_the_winner 的文档串）。
+        if pid is None:
+            _P._next_id[0] += 1
+            pid = _P._next_id[0]
+        self.id = pid
         self.input_cost_per_1k = inp
         self.output_cost_per_1k = out
         self.avg_latency_ms = latency
@@ -53,22 +61,28 @@ class _FakeDB:
 
     真实的 ProviderQualityScore 需要 drift_monitor_job 才会有数据，而那个 job
     默认不跑 —— 与其造一张有数据的表，不如直接把「查得到分」这件事替身掉。
+
+    键是 **provider_id**：2026-09-09 起质量分按 id 关联。传 provider 对象进来，
+    由替身自己取 id，测试里不必手写数字。
     """
 
-    def __init__(self, scores: dict[str, float]):
-        self._scores = scores
+    def __init__(self, scores: dict):
+        # 允许用 provider 对象或裸 id 做键
+        self._scores = {
+            (k.id if hasattr(k, "id") else k): v for k, v in scores.items()
+        }
         self.queries = 0
 
     def query(self, model):
         return self
 
     def filter(self, *args):
-        # 从 SQLAlchemy 的 BinaryExpression 里取出被比较的 provider_name 字面量
+        # 从 SQLAlchemy 的 BinaryExpression 里取出被比较的 provider_id 字面量
         self._wanted = None
         for expr in args:
             right = getattr(expr, "right", None)
             value = getattr(right, "value", None)
-            if isinstance(value, str) and value in self._scores:
+            if isinstance(value, int) and value in self._scores:
                 self._wanted = value
         return self
 
@@ -100,8 +114,8 @@ def _score(provider, db):
 class TestQualityScoreActuallyApplies:
     def test_a_bad_quality_score_lowers_the_score(self):
         p = _P("flaky")
-        good = _score(p, _FakeDB({"flaky": 1.0}))
-        bad = _score(p, _FakeDB({"flaky": 0.2}))
+        good = _score(p, _FakeDB({p: 1.0}))
+        bad = _score(p, _FakeDB({p: 0.2}))
         assert bad == pytest.approx(good * 0.2, rel=1e-6)
 
     def test_omitting_db_silently_ignores_quality(self):
@@ -109,8 +123,8 @@ class TestQualityScoreActuallyApplies:
 
         这不是要保留的行为，是**要求调用方必须传 db** 的理由。"""
         p = _P("flaky")
-        assert _score(p, None) == pytest.approx(_score(p, _FakeDB({"flaky": 1.0})))
-        assert _score(p, None) != pytest.approx(_score(p, _FakeDB({"flaky": 0.2})))
+        assert _score(p, None) == pytest.approx(_score(p, _FakeDB({p: 1.0})))
+        assert _score(p, None) != pytest.approx(_score(p, _FakeDB({p: 0.2})))
 
 
 class TestTheDecidingSortSeesIt:
@@ -137,13 +151,13 @@ class TestTheDecidingSortSeesIt:
         guardrails.max_output_tokens = 1_000_000
 
         # 先验证前提：不看质量分时确实是 fast 赢，否则这条测试什么都没证明
-        neutral = _FakeDB({"fast": 1.0, "slow": 1.0})
+        neutral = _FakeDB({fast: 1.0, slow: 1.0})
         baseline = crud._filter_and_sort_candidates(
             _req(), [(slow, mapping), (fast, mapping)], guardrails, WEIGHTS, None, db=neutral
         )
         assert [p.name for p, _ in baseline][0] == "fast", "前提不成立：延迟没能决定胜负"
 
-        db = _FakeDB({"fast": 0.05, "slow": 1.0})
+        db = _FakeDB({fast: 0.05, slow: 1.0})
         result = crud._filter_and_sort_candidates(
             _req(), [(slow, mapping), (fast, mapping)], guardrails, WEIGHTS, None, db=db
         )

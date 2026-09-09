@@ -1476,14 +1476,24 @@ def _provider_sort_key(
     return (total_price + provider.avg_latency_ms / 1000 + provider.priority / 1000, provider.priority)
 
 
-def _get_provider_quality_score(db: Session | None, provider_name: str, workload_class: str) -> float:
-    """Return the composite quality score [0,1] for a provider+workload_class. Default 1.0."""
-    if db is None:
+def _get_provider_quality_score(
+    db: Session | None, provider_id: int | None, workload_class: str
+) -> float:
+    """(provider, workload_class) 的综合质量分 [0,1]，查不到则 1.0。
+
+    ⚠ 按 **id** 查，不是名字。按名字查是这个功能三个月不生效的原因：
+    2026-06-21 写下的 17 行质量分记的是当时的 provider 名，之后机器改名/下线，
+    没有一行能对上现存 provider —— 于是 drift monitor 每 6 小时算出来的分，
+    对路由**一次都没有起过作用**，只出现在管理台展示的 trace 里。
+
+    默认 1.0（不惩罚）而不是 0：没有数据不等于质量差。
+    """
+    if db is None or provider_id is None:
         return 1.0
     rec = (
         db.query(models.ProviderQualityScore)
         .filter(
-            models.ProviderQualityScore.provider_name == provider_name,
+            models.ProviderQualityScore.provider_id == provider_id,
             models.ProviderQualityScore.workload_class == workload_class,
         )
         .first()
@@ -1610,7 +1620,7 @@ def _provider_route_score(
     # ------------------------------------------------------------------
     quality_multiplier = _get_provider_quality_score(
         db,
-        provider.name,
+        getattr(provider, "id", None),
         workload_class,
     )
 
@@ -5460,10 +5470,22 @@ def update_provider_quality_scores(db: Session, lookback_hours: int = 6) -> list
         .all()
     )
 
-    # Accumulate stats per (provider, workload_class)
-    stats: dict[tuple[str, str], dict] = {}
+    # 按 (provider_id, workload_class) 累计。
+    #
+    # ⚠ 原来的 key 是 `row.provider_name or "unknown"` —— 于是**给一个根本不存在的
+    # provider 算了一套质量分**。生产上真有这么 4 行（2026-06-21）。"unknown" 不是
+    # 供应商，是「这个请求没走到任何 provider」（护栏拦截或全候选失败）的兜底标签，
+    # 它的成功率恒为 0，拿去当质量分毫无意义。
+    #
+    # 同一个兜底写法还让成本建议推荐「把流量迁到 unknown，预计省 98 美元」——
+    # 把「请求全挂了」读成了「这家不要钱」。同一个病灶的两处症状。
+    stats: dict[tuple[int, str], dict] = {}
+    names: dict[int, str] = {}
     for row in rows:
-        pname = row.provider_name or "unknown"
+        if row.provider_id is None:
+            continue
+        names.setdefault(row.provider_id, row.provider_name or "")
+        pid = row.provider_id
         wclass = "chat_general"
         if row.route_trace_json:
             try:
@@ -5471,7 +5493,7 @@ def update_provider_quality_scores(db: Session, lookback_hours: int = 6) -> list
                 wclass = trace.get("workload_class", "chat_general")
             except (json.JSONDecodeError, TypeError):
                 pass
-        key = (pname, wclass)
+        key = (pid, wclass)
         if key not in stats:
             stats[key] = {
                 "success": 0, "total": 0,
@@ -5497,7 +5519,7 @@ def update_provider_quality_scores(db: Session, lookback_hours: int = 6) -> list
 
     now = datetime.now(UTC)
     updated = []
-    for (pname, wclass), s in stats.items():
+    for (pid, wclass), s in stats.items():
         if s["total"] == 0:
             continue
         success_rate = s["success"] / s["total"]
@@ -5515,18 +5537,22 @@ def update_provider_quality_scores(db: Session, lookback_hours: int = 6) -> list
         rec = (
             db.query(models.ProviderQualityScore)
             .filter(
-                models.ProviderQualityScore.provider_name == pname,
+                models.ProviderQualityScore.provider_id == pid,
                 models.ProviderQualityScore.workload_class == wclass,
             )
             .first()
         )
         if rec is None:
             rec = models.ProviderQualityScore(
-                provider_name=pname,
+                provider_id=pid,
+                # 名字仍然写入，作为可读冗余：查这张表时不必每次去 join providers。
+                # 但**关联靠 id** —— 名字会随改名失效，这正是它三个月不生效的原因。
+                provider_name=names.get(pid, ""),
                 workload_class=wclass,
                 updated_at=now,
             )
             db.add(rec)
+        rec.provider_name = names.get(pid, rec.provider_name)
         rec.quality_score = round(quality, 4)
         rec.success_rate = round(success_rate, 4)
         rec.schema_validity_rate = round(schema_validity_rate, 4)
@@ -5535,7 +5561,8 @@ def update_provider_quality_scores(db: Session, lookback_hours: int = 6) -> list
         rec.avg_cost_usd = round(avg_cost, 6)
         rec.sample_count = s["total"]
         rec.updated_at = now
-        updated.append({"provider": pname, "workload_class": wclass, "quality": quality, "n": s["total"]})
+        updated.append({"provider": names.get(pid, ""), "provider_id": pid,
+                        "workload_class": wclass, "quality": quality, "n": s["total"]})
 
     db.commit()
     return updated
