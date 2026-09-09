@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone as _tz
 from pathlib import Path
+import logging
 import os
 import signal
 import threading
@@ -30,13 +31,46 @@ UTC = _tz.utc
 # Runs after uvicorn's configure_logging() so it overrides the defaults.
 setup_logging()
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     models.Base.metadata.create_all(bind=engine)
-    # Seed initial superadmin if no admin users exist
     db = SessionLocal()
     try:
+        # schema 迁移在**启动时跑一次**，不在请求路径上。
+        #
+        # ensure_schema 被 seed_demo_data 及几乎每个读路径调用（全仓 47 处），
+        # 此前意味着每个请求都在尝试 DDL：每请求一次全库反射，且迁移失败时每请求
+        # 抛一次异常。2026-09-09 v1.5.21 事故里，一条被拒的 ALTER 因此让每个落库
+        # 端点持续 500 四分钟。现在它每进程只真正执行一次，其余调用是空操作。
+        crud.ensure_schema(db, force=True)
+
+        # 模型声明的列必须真的存在，否则**拒绝启动**。
+        #
+        # 这是那次事故里真正致命的一层：ALTER 被拒后 request_logs 少了 created_at，
+        # 而模型声明着它 —— SQLAlchemy 把它写进每条 SELECT，该表所有查询报
+        # Unknown column。迁移容错救不了，因为问题不在迁移，在于模型与库不一致。
+        #
+        # 这种状态下服务无法正确工作。崩溃循环刺眼且一眼可诊断（日志直接给出要执行
+        # 的 ALTER），持续 500 则要翻 traceback 才知道是加列引起的。宁可起不来。
+        missing = crud.verify_model_columns(db)
+        if missing:
+            for item in missing:
+                table, column = item.split(".", 1)
+                logger.error(
+                    "SCHEMA_MISMATCH %s —— 模型声明了该列但数据库没有。"
+                    "请 DBA 执行: ALTER TABLE %s ADD COLUMN %s <类型> NULL;",
+                    item, table, column,
+                )
+            raise RuntimeError(
+                f"数据库缺少模型声明的列，拒绝启动: {', '.join(missing)}。"
+                f"应用账号没有 ALTER 权限，需 DBA 先执行 DDL —— "
+                f"详见 README「数据库 schema 变更」。"
+            )
+
+        # Seed initial superadmin if no admin users exist
         crud.seed_superadmin(db)
     finally:
         db.close()

@@ -221,7 +221,29 @@ def _guardrail_row_to_schema(
     )
 
 
-def ensure_schema(db: Session):
+# ensure_schema 每进程只真正跑一次。
+#
+# 它被 seed_demo_data 以及几乎每个 admin/业务读路径调用 —— 全仓 47 处，
+# 意味着**每个请求都在尝试 DDL**。代价：每请求一次 inspector.get_columns()
+# 全库反射，加上迁移失败时每请求抛一次异常。2026-09-09 v1.5.21 事故里，
+# 一条被拒的 ALTER 因此让每个落库端点持续 500 四分钟。
+#
+# schema 在进程生命周期内不会变，跑一次就够。启动时由 lifespan 显式调用（见
+# main.py），此后所有调用点变成空操作 —— 不删那 47 处调用是为了让全新环境
+# （测试、本地首启）仍能自举。
+_SCHEMA_READY = False
+
+
+def reset_schema_cache() -> None:
+    """仅供测试：让下一次 ensure_schema 重新执行。"""
+    global _SCHEMA_READY
+    _SCHEMA_READY = False
+
+
+def ensure_schema(db: Session, *, force: bool = False):
+    global _SCHEMA_READY
+    if _SCHEMA_READY and not force:
+        return
     Base.metadata.create_all(bind=db.get_bind())
     inspector = inspect(db.get_bind())
     table_columns = {
@@ -341,6 +363,33 @@ def ensure_schema(db: Session):
 
     if changed:
         db.commit()
+    _SCHEMA_READY = True
+
+
+def verify_model_columns(db: Session) -> list[str]:
+    """检查每个 ORM 模型声明的列是否真的存在于数据库。返回缺失项。
+
+    这是 2026-09-09 事故里**真正致命**的那一层：ALTER 被拒后 request_logs 少了
+    created_at，而模型声明着它 —— SQLAlchemy 把它写进每条 SELECT，于是该表所有
+    查询报 `Unknown column`。迁移容错救不了这个，因为问题不在迁移，在于模型与
+    库不一致。
+
+    这种状态下服务无法正确工作，应当**拒绝启动**而不是每个请求 500 四分钟：
+    崩溃循环刺眼且立刻可诊断，持续 500 则要翻 traceback 才知道是加列引起的。
+    """
+    from sqlalchemy import inspect as _sa_inspect
+
+    inspector = _sa_inspect(db.get_bind())
+    existing_tables = set(inspector.get_table_names())
+    missing: list[str] = []
+    for table_name, table in Base.metadata.tables.items():
+        if table_name not in existing_tables:
+            continue  # 表本身不存在交给 create_all，不在这里判
+        actual = {c["name"] for c in inspector.get_columns(table_name)}
+        for column in table.columns:
+            if column.name not in actual:
+                missing.append(f"{table_name}.{column.name}")
+    return missing
 
 
 def seed_demo_data(db: Session):

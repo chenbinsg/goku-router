@@ -58,6 +58,9 @@ def test_a_failing_alter_does_not_take_down_ensure_schema(db, monkeypatch, caplo
     db.commit()
     monkeypatch.setattr(db, "execute", boom)
 
+    # ensure_schema 现在每进程只真正跑一次（迁移已挪到启动阶段，不再在请求路径上）。
+    # 测试要的是迁移逻辑本身，所以显式重置缓存。
+    crud.reset_schema_cache()
     with caplog.at_level(logging.ERROR):
         crud.ensure_schema(db)          # 不抛 = 通过
 
