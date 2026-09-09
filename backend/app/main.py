@@ -349,14 +349,14 @@ def delete_user(
 
 
 @app.get("/health")
-def read_health(db: Session = Depends(get_db)):
+def read_health(response: Response, db: Session = Depends(get_db)):
     """Health check with DB connectivity and circuit breaker status. (v0.3)"""
     db_ok = False
     try:
         db.execute(text("SELECT 1"))
         db_ok = True
     except Exception:
-        pass
+        response.status_code = 503
     cb_states = circuit_breakers.get_all_states()
     tripped = [name for name, info in cb_states.items() if info["state"] == "open"]
     return {

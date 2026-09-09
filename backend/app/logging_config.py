@@ -19,6 +19,29 @@ def _ts(created: float) -> str:
     return datetime.fromtimestamp(created).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
 
+class RoutineAccessFilter(logging.Filter):
+    """Drop routine probe/UI reads before formatting; retain unexpected results."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.name != "uvicorn.access" or not isinstance(record.args, tuple) or len(record.args) != 5:
+            return True
+        _, method, full_path, _, status = record.args
+        if method not in ("GET", "HEAD") or not isinstance(full_path, str):
+            return True
+        try:
+            status = int(status)
+        except (TypeError, ValueError):
+            return True
+        path = full_path.partition("?")[0]
+        if path == "/health":
+            return status != 200
+        if path == "/":
+            return status != 307  # RedirectResponse's expected /console/ redirect
+        if path in ("/console", "/console/") or path.startswith("/console/assets/"):
+            return not (200 <= status < 300 or status == 304)
+        return True
+
+
 class JsonLogFormatter(logging.Formatter):
     """Render each LogRecord as one JSON line.
 
@@ -60,8 +83,12 @@ def setup_logging() -> None:
 
     Called at import time of app.main (after uvicorn's own configure_logging), so it
     overrides uvicorn's defaults and covers access logs, error logs and tracebacks.
-    No-op when LOG_FORMAT != json.
+    Access filtering applies to both JSON and text logging.
     """
+    access_logger = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, RoutineAccessFilter) for f in access_logger.filters):
+        access_logger.addFilter(RoutineAccessFilter())
+
     if os.getenv("LOG_FORMAT", "json").lower() != "json":
         return
 
