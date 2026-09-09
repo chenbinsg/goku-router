@@ -18,10 +18,14 @@
 
 ## 一并钉住的边界
 
-最后一条 `test_identical_prices_still_tie` 记的是**这个修复的局限**：
-现网 openrouter 与 TOKENSTARS_OPENROUTER 的价格一字不差（0.001/0.002），
-成本维度依旧分不出胜负。那是价格数据填错了（自建推理照抄了商用报价），
-不是打分函数能解决的问题 —— 别指望这个修复改变 Qwen3.8 的路由。
+`test_identical_prices_still_tie` 记的是**这个修复的局限**：现网 openrouter 与
+TOKENSTARS_OPENROUTER 的价格一字不差（0.001/0.002），成本维度依旧分不出胜负。
+那是价格数据填错了（自建推理照抄了商用报价），不是打分函数能解决的。
+
+`TestZeroIsARealPrice` 是随后补的：把自建改成 0 之后才发现，**光改数据也没用**
+—— `total_price or reference` 里 0 是 falsy，会被当成「未知」悄悄替换成参考价。
+两个 bug 叠在一起，导致「在管理台把自建价格改成 0」这个动作从头到尾没有任何
+可观察的效果。
 """
 import pytest
 
@@ -90,10 +94,14 @@ class TestReferencePriceComesFromTheCandidates:
         ref = crud._candidate_reference_price([(solo, None)])
         assert _cost_of(solo, ref) == pytest.approx(1.0)
 
-    def test_free_providers_do_not_become_the_reference(self):
-        """价格为 0 通常是「没填」而不是「真免费」。让它当基准会把所有人
-        的成本分压成 0，等于用一条缺失数据废掉整个维度。"""
-        unpriced = _P("unpriced", 0.0, 0.0)
+    def test_unpriced_providers_do_not_become_the_reference(self):
+        """真的没填（NULL）不参与取基准 —— 一条缺失数据不该废掉整个维度。
+
+        ⚠ 这条原本写的是「价格为 0 通常是没填」，把 `0.0` 排除在基准之外。
+        那个假设是错的：自建推理**没有**按 token 计费的边际成本，0 是如实描述。
+        判据现在是 `is None`，不是 `> 0`，见 TestZeroIsARealPrice。
+        """
+        unpriced = _P("legacy", None, None)
         real = _P("real", 0.001, 0.002)
         ref = crud._candidate_reference_price([(unpriced, None), (real, None)])
         assert ref == pytest.approx(0.003)
@@ -101,7 +109,7 @@ class TestReferencePriceComesFromTheCandidates:
 
     def test_no_priced_candidate_falls_back_to_the_constant(self):
         """全都没填价 → 没有基准可取，退回旧常量，行为与修复前一致。"""
-        assert crud._candidate_reference_price([(_P("a", 0.0, 0.0), None)]) is None
+        assert crud._candidate_reference_price([(_P("a", None, None), None)]) is None
 
 
 class TestKnownLimitation:
@@ -113,3 +121,55 @@ class TestKnownLimitation:
         commercial = _P("TOKENSTARS_OPENROUTER", 0.001, 0.002)
         ref = crud._candidate_reference_price([(selfhosted, None), (commercial, None)])
         assert _cost_of(selfhosted, ref) == _cost_of(commercial, ref) == pytest.approx(1.0)
+
+
+class TestZeroIsARealPrice:
+    """自建推理没有按 token 计费的边际成本，填 0 是如实描述，不是「没填」。
+
+    原先 `total_price or reference` 把 0 当 falsy 吞掉了 —— 在管理台把自建的价格
+    改成 0，对路由**没有任何影响**，而界面上看不出为什么。
+    """
+
+    def test_free_provider_scores_full_marks(self):
+        free = _P("selfhosted", 0.0, 0.0)
+        paid = _P("commercial", 0.001, 0.002)
+        ref = crud._candidate_reference_price([(free, None), (paid, None)])
+        assert ref == 0.0, "免费候选必须参与取基准，否则它的 0 等于白填"
+        assert _cost_of(free, ref) == pytest.approx(1.0)
+
+    def test_paid_cannot_tie_with_free(self):
+        """这是修这个 bug 的全部意义：0 和 0.003 必须能分出高下。"""
+        free = _P("selfhosted", 0.0, 0.0)
+        paid = _P("commercial", 0.001, 0.002)
+        ref = crud._candidate_reference_price([(free, None), (paid, None)])
+        assert _cost_of(free, ref) > _cost_of(paid, ref)
+
+    def test_a_free_candidate_zeroes_the_cost_axis_for_paid_ones(self):
+        """比值语义下，相对「不要钱」任何价格都无从比较 —— 付费的成本分归零。
+
+        这不等于出局：成本权重 0.45，能力+延迟合计 0.55 仍可翻盘。
+        真要保留付费候选之间的成本排序，就别把自建填成字面 0，
+        填它真实的摊销成本（见 test_amortised_price_keeps_ordering）。
+        """
+        free = _P("selfhosted", 0.0, 0.0)
+        cheap = _P("cheap", 0.0005, 0.0005)
+        dear = _P("dear", 0.01, 0.01)
+        ref = crud._candidate_reference_price([(free, None), (cheap, None), (dear, None)])
+        assert _cost_of(cheap, ref) == _cost_of(dear, ref) == 0.0
+
+    def test_amortised_price_keeps_ordering(self):
+        """填一个很小但非零的真实成本，比值语义完好，付费之间仍分得出高下。"""
+        selfhosted = _P("selfhosted", 0.0001, 0.0002)   # 0.0003
+        cheap = _P("cheap", 0.0005, 0.0005)             # 0.001
+        dear = _P("dear", 0.001, 0.002)                 # 0.003
+        ref = crud._candidate_reference_price([(selfhosted, None), (cheap, None), (dear, None)])
+        assert _cost_of(selfhosted, ref) == pytest.approx(1.0)
+        assert _cost_of(cheap, ref) == pytest.approx(0.3, rel=1e-3)
+        assert _cost_of(dear, ref) == pytest.approx(0.1, rel=1e-3)
+
+    def test_none_price_is_not_treated_as_free(self):
+        """真的没填（历史行的 NULL）不能冒充免费 —— 那会让一条缺失数据赢下成本轴。"""
+        unknown = _P("legacy", None, None)
+        paid = _P("commercial", 0.001, 0.002)
+        ref = crud._candidate_reference_price([(unknown, None), (paid, None)])
+        assert ref == pytest.approx(0.003), "None 必须被跳过，不能当成 0"

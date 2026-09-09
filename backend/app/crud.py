@@ -1487,10 +1487,28 @@ def _provider_route_score(
     # ⚠ 前提是各 provider 的价格**如实填写**。自建推理的边际成本远低于商用 API，
     # 若照抄商用报价（现网 openrouter 与 TOKENSTARS 都是 0.001/0.002，一字不差），
     # 那么无论参考价怎么取，成本维度依然分不出胜负 —— 那是数据问题，不是这里的。
+    # ⚠ 0 是**真实价格**，不是「没填」。自建推理没有按 token 计费的边际成本，
+    # 填 0 是如实描述。原来这里写 `total_price or reference` —— 0 是 falsy，
+    # 于是一个真免费的 provider 被悄悄当成「未知」并赋予参考价，
+    # **在管理台把价格改成 0 对路由没有任何影响**。
+    # 真正的「没填」是 None（列可空的历史行），下面用 `is None` 区分。
     _fallback_reference = 0.01
-    reference = float(reference_price_per_1k or _fallback_reference)
-    safe_total_price = max(float(total_price or reference), 0.000001)
-    cost_score = min(max(reference, 0.000001) / safe_total_price, 1.0)
+    reference = (
+        float(reference_price_per_1k)
+        if reference_price_per_1k is not None
+        else _fallback_reference
+    )
+    if total_price is None:
+        cost_score = 1.0                      # 价格未知：不因缺数据而惩罚它
+    elif float(total_price) <= 0.0:
+        cost_score = 1.0                      # 真免费：成本轴上的满分
+    elif reference <= 0.0:
+        # 候选集里有免费的，付费的在**成本这一个维度上**不参与竞争。
+        # 比值语义下这是诚实的结论：相对「不要钱」，任何价格都无从比较。
+        # 它并不等于出局 —— 成本权重 0.45，能力+延迟合计 0.55 仍可翻盘。
+        cost_score = 0.0
+    else:
+        cost_score = min(reference / float(total_price), 1.0)
 
     # ------------------------------------------------------------------
     # Provider quality from drift monitor / health measurements.
@@ -1555,11 +1573,13 @@ def _candidate_reference_price(
     单候选时返回它自己的价格 → cost_score = 1.0。这是对的：只有一个选择时，
     成本维度本来就没有可比性，不该凭空给它一个高分或低分去影响别的维度。
     """
-    prices = [
-        float(p.input_cost_per_1k + p.output_cost_per_1k)
-        for p, _ in candidates
-        if (p.input_cost_per_1k or 0) + (p.output_cost_per_1k or 0) > 0
-    ]
+    prices = []
+    for provider, _ in candidates:
+        inp, out = provider.input_cost_per_1k, provider.output_cost_per_1k
+        if inp is None or out is None:
+            # 真的没填（列可空的历史行）。跳过，让它走 `_fallback_reference`。
+            continue
+        prices.append(float(inp) + float(out))
     return min(prices) if prices else None
 
 
