@@ -143,10 +143,21 @@ def run_anomaly_sweep():
         latency_threshold = cfg.provider_latency_ms if cfg else 600.0
         cost_multiplier = cfg.cost_spike_multiplier if cfg else 3.0
 
-        # Recent window: last 1 hour
+        # 最近 1 小时 —— 这次是真的按时间取。
+        #
+        # 原来写的是 `id > 0 ... limit(200)`，注释却说 "last 1 hour"：request_logs
+        # 当时**没有任何时间字段**，按时间过滤根本无从谈起。于是它取的是「最近 200
+        # 行」，与时间无关 —— 系统越安静，这 200 行跨的时间越长，越会拿陈年旧账
+        # 反复告警。2026-09-09 实测：01:12 就已结束的 Qwen3.8 故障，03:07 的扫描
+        # 仍在报「failure rate 100%」。
+        #
+        # created_at 是新加的列，历史行为 NULL。这里显式排除 NULL 而不是把它们当
+        # 「很久以前」或「刚刚」—— 不知道就不参与判断，宁可少报也不误报。
+        window_start = datetime.utcnow() - timedelta(hours=1)
         recent = db.query(models.RequestLog).filter(
-            models.RequestLog.id > 0,
-        ).order_by(models.RequestLog.id.desc()).limit(200).all()
+            models.RequestLog.created_at.isnot(None),
+            models.RequestLog.created_at >= window_start,
+        ).order_by(models.RequestLog.id.desc()).limit(2000).all()
 
         # 7-day baseline: avg hourly cost
         baseline_rows = db.query(models.BillingRecord).filter(
@@ -156,6 +167,8 @@ def run_anomaly_sweep():
         baseline_hours = max((now - baseline_start).total_seconds() / 3600, 1)
         baseline_hourly_cost = baseline_total_cost / baseline_hours
 
+        # `recent` 现在确实是一小时的量，这个比较才第一次成立 —— 此前它拿「最近
+        # 200 行」的总和去比「每小时」基线，两边的时间尺度根本对不上。
         recent_cost = sum(r.cost_amount or 0 for r in recent)
 
         # Provider failure rate
@@ -172,8 +185,12 @@ def run_anomaly_sweep():
 
         notifications = []
 
+        # 一小时窗口下样本可能很少。2 个请求里挂 1 个就报「50% 失败率」属于噪音，
+        # 而它和真正的故障长得一模一样 —— 告警一旦学会撒谎就没人再看了。
+        MIN_SAMPLES_FOR_RATE = 10
+
         for pname, stats in provider_stats.items():
-            if stats["total"] == 0:
+            if stats["total"] < MIN_SAMPLES_FOR_RATE:
                 continue
             failure_rate = (stats["failed"] / stats["total"]) * 100
             if failure_rate >= failure_threshold:

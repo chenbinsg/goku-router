@@ -243,6 +243,7 @@ def ensure_schema(db: Session):
             ("provider_reported_cost", "ALTER TABLE request_logs ADD COLUMN provider_reported_cost FLOAT DEFAULT 0"),
             ("response_healed", "ALTER TABLE request_logs ADD COLUMN response_healed BOOLEAN DEFAULT 0"),
             ("healing_strategy", "ALTER TABLE request_logs ADD COLUMN healing_strategy VARCHAR(64)"),
+            ("created_at", "ALTER TABLE request_logs ADD COLUMN created_at DATETIME"),
         ],
         "providers": [
             ("input_cost_per_1k", "ALTER TABLE providers ADD COLUMN input_cost_per_1k FLOAT DEFAULT 0.001"),
@@ -2908,6 +2909,7 @@ def _execute_routed_chat_completion(
                 fallback_used=False,
                 error_code="GUARDRAIL_BLOCKED_WORD",
                 route_trace_json=json.dumps(route_trace, ensure_ascii=False),
+                created_at=datetime.utcnow(),
             )
             db.add(failed_log)
             db.commit()
@@ -3035,6 +3037,7 @@ def _execute_routed_chat_completion(
                 fallback_used=index > 0,
                 error_code=None,
                 route_trace_json=json.dumps(route_trace, ensure_ascii=False),
+                created_at=datetime.utcnow(),
             )
             db.add(request_log)
             if api_key_label:
@@ -3142,6 +3145,7 @@ def _execute_routed_chat_completion(
                 fallback_used=index > 0,
                 error_code=None,
                 route_trace_json=json.dumps(route_trace, ensure_ascii=False),
+                created_at=datetime.utcnow(),
             )
             db.add(request_log)
             if settings.prompt_cache_enabled:
@@ -3219,6 +3223,7 @@ def _execute_routed_chat_completion(
         fallback_used=len(candidates) > 1,
         error_code=_fit_error_code(last_error),
         route_trace_json=json.dumps(route_trace, ensure_ascii=False),
+        created_at=datetime.utcnow(),
     )
     db.add(failed_log)
     db.commit()
@@ -4292,8 +4297,19 @@ def _build_cost_optimization_opportunities(
     model_provider_groups: dict[str, dict[str, list[models.RequestLog]]] = {}
     for row in request_logs:
         model_label = row.resolved_model or row.requested_model or "unknown"
-        provider_label = row.provider_name or "unknown"
-        model_provider_groups.setdefault(model_label, {}).setdefault(provider_label, []).append(row)
+        if row.provider_name is None:
+            # provider_name 为空 = 这个请求**根本没走到任何 provider**（400 护栏
+            # 拦截或 503 全部候选失败）。它不是一家叫 "unknown" 的供应商。
+            #
+            # 之前用 `row.provider_name or "unknown"` 把它们并成一桶，而失败请求
+            # 不计费、成本恒为 0，于是这一桶永远是「最便宜的 provider」，建议栏
+            # 里五条有五条在说「把流量迁到 unknown，预计省 98 美元」——
+            # 把「请求全挂了」读成了「这家不要钱」。
+            #
+            # ⚠ 这不只是文案难看：ROUTER_AUTO_OPTIMIZE 打开时，drift monitor 会
+            # 照着这类信号自动开 A/B 实验。2026-06-16~21 它开过五天。
+            continue
+        model_provider_groups.setdefault(model_label, {}).setdefault(row.provider_name, []).append(row)
 
     for model_label, provider_groups in sorted(model_provider_groups.items()):
         if len(provider_groups) < 2:

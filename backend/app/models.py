@@ -195,6 +195,11 @@ class RequestLog(Base):
     fallback_used = Column(Boolean, nullable=False, default=False)
     error_code = Column(String(64), nullable=True)
     route_trace_json = Column(Text, nullable=True)
+    # 这张表此前**没有任何时间字段**。异常扫描那句 `# Recent window: last 1 hour`
+    # 因此从来没能成立 —— 它只能取「最近 200 行」，系统越安静越会拿陈年旧账反复
+    # 告警（2026-09-09 实测：01:12 就结束的故障，03:07 仍在报）。
+    # 可空：37,000 条历史行无法诚实回填，取窗口时按 NULL 排除。
+    created_at = Column(DateTime, nullable=True, index=True)
 
 class BillingRecord(Base):
     """One row per completed LLM request. Written by crud._write_billing_record()."""
