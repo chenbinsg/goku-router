@@ -40,12 +40,23 @@ def db():
         session.close()
 
 
+# provider 身份现在是 **id**，名字只是可读冗余。替身按名字派发一个稳定 id。
+_IDS: dict = {}
+
+
+def _pid(name):
+    if name is None:
+        return None
+    return _IDS.setdefault(name, 100 + len(_IDS))
+
+
 def _log(provider, status=200, cost=0.01, age_minutes=1, model="Qwen3.8"):
     return models.RequestLog(
         request_id=f"r{id(object())}",
         requested_model=model,
         resolved_model=model,
         provider_name=provider,
+        provider_id=_pid(provider),
         status_code=status,
         latency=100.0,
         cost_amount=cost,

@@ -171,17 +171,28 @@ def run_anomaly_sweep():
         # 200 行」的总和去比「每小时」基线，两边的时间尺度根本对不上。
         recent_cost = sum(r.cost_amount or 0 for r in recent)
 
-        # Provider failure rate
-        provider_stats: dict[str, dict] = {}
+        # Provider failure rate —— 按 provider **id** 分组。
+        #
+        # 原来的键是 `r.provider_name or "unknown"`，两个毛病：
+        #   · 按名字分组，provider 改名后同一台机器被劈成两组，两组都不代表它；
+        #   · provider_id 为空的行（护栏拦截 / 全候选失败）被攒成一个叫 "unknown"
+        #     的假供应商，失败率恒 100%，于是每小时都报一条纯噪音告警 ——
+        #     生产实测 2026-09-09 就是这样：故障 01:12 已结束，03:07 仍在报。
+        # 没走到 provider 的请求不是任何一家的失败，这里直接跳过。
+        provider_stats: dict[int, dict] = {}
         for r in recent:
-            pname = r.provider_name or "unknown"
-            if pname not in provider_stats:
-                provider_stats[pname] = {"total": 0, "failed": 0, "latencies": []}
-            provider_stats[pname]["total"] += 1
+            if r.provider_id is None:
+                continue
+            st = provider_stats.setdefault(
+                r.provider_id,
+                {"name": r.provider_name or f"provider#{r.provider_id}",
+                 "total": 0, "failed": 0, "latencies": []},
+            )
+            st["total"] += 1
             if r.status_code != 200:
-                provider_stats[pname]["failed"] += 1
+                st["failed"] += 1
             if r.latency:
-                provider_stats[pname]["latencies"].append(r.latency)
+                st["latencies"].append(r.latency)
 
         notifications = []
 
@@ -189,7 +200,8 @@ def run_anomaly_sweep():
         # 而它和真正的故障长得一模一样 —— 告警一旦学会撒谎就没人再看了。
         MIN_SAMPLES_FOR_RATE = 10
 
-        for pname, stats in provider_stats.items():
+        for _pid, stats in provider_stats.items():
+            pname = stats["name"]
             if stats["total"] < MIN_SAMPLES_FOR_RATE:
                 continue
             failure_rate = (stats["failed"] / stats["total"]) * 100

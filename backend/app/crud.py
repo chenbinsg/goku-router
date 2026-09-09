@@ -3878,9 +3878,11 @@ def get_billing_usage(
     for row in rows:
         label = row.api_key_label or "unknown"
         resolved_model = row.resolved_model or row.requested_model
-        provider_name = row.provider_name or "unknown"
+        # 键里放 provider_id，展示仍用名字。按名字分组会把改过名的同一台机器
+        # 拆成两行账，金额各算各的。
+        provider_name = row.provider_name or _UNROUTED_LABEL
         environment_label = row.environment or "default"
-        key = (label, resolved_model, provider_name, environment_label)
+        key = (label, resolved_model, row.provider_id, environment_label)
         existing = grouped.get(key)
         if existing is None:
             grouped[key] = schemas.BillingUsageItem(
@@ -4419,14 +4421,17 @@ def _build_cost_optimization_opportunities(
     request_logs: list[models.RequestLog],
 ) -> list[schemas.CostOptimizationOpportunityItem]:
     opportunities: list[schemas.CostOptimizationOpportunityItem] = []
-    model_provider_groups: dict[str, dict[str, list[models.RequestLog]]] = {}
+    model_provider_groups: dict[str, dict[int, list[models.RequestLog]]] = {}
+    provider_labels: dict[int, str] = {}
     for row in request_logs:
         model_label = row.resolved_model or row.requested_model or "unknown"
-        if row.provider_name is None or row.status_code >= 400:
+        if row.provider_id is None or row.status_code >= 400:
             # 失败请求一律不参与成本比较。
             #
             # 判据有两条，缺一不可：
-            #   · provider_name is None —— 请求根本没走到任何 provider（护栏拦截）；
+            #   · provider_id is None —— 请求根本没走到任何 provider（护栏拦截）。
+            #     判的是 **id** 不是名字：下面按 id 分组，两处判据必须一致，
+            #     否则「有名字没 id」的行会落进一个叫 provider#None 的假组；
             #   · status_code >= 400 —— 走到了但失败了。
             #
             # 只判第一条不够。失败日志此前写 provider_name=None，两条判据恰好重合，
@@ -4442,13 +4447,20 @@ def _build_cost_optimization_opportunities(
             # ⚠ 不只是文案难看：ROUTER_AUTO_OPTIMIZE 打开时 drift monitor 会照着
             # 这类信号自动开 A/B 实验，它 2026-06-16~21 开过五天。
             continue
-        model_provider_groups.setdefault(model_label, {}).setdefault(row.provider_name, []).append(row)
+        # 键**只用 provider_id**：名字一旦进键，改过名的同一台机器又会被劈成两家，
+        # 然后「建议把流量从自己迁到自己」。展示名单独记在 provider_labels 里。
+        model_provider_groups.setdefault(model_label, {}).setdefault(
+            row.provider_id, []
+        ).append(row)
+        if row.provider_name:
+            provider_labels.setdefault(row.provider_id, row.provider_name)
 
     for model_label, provider_groups in sorted(model_provider_groups.items()):
         if len(provider_groups) < 2:
             continue
         provider_stats = []
-        for provider_label, rows in provider_groups.items():
+        for pid, rows in provider_groups.items():
+            provider_label = provider_labels.get(pid, f"provider#{pid}")
             total_cost = sum(row.cost_amount for row in rows)
             request_count = len(rows)
             avg_cost = total_cost / request_count if request_count else 0.0
@@ -4513,16 +4525,60 @@ def _build_cost_optimization_opportunities(
     return opportunities[:5]
 
 
+# provider_id 为空 = 这个请求**没走到任何 provider**（护栏拦截或全候选失败）。
+# 它不是一家叫 "unknown" 的供应商 —— 那个写法制造过两次事故级的误导：
+#   · 成本建议推荐「把流量迁到 unknown，预计省 98 美元」（失败不计费 → 成本恒为 0）；
+#   · drift monitor 给它算了一套质量分（成功率恒为 0）。
+_UNROUTED_LABEL = "(未走到 provider)"
+
+
+def _group_by_provider(
+    rows: list[models.RequestLog],
+    *,
+    include_unrouted: bool = False,
+) -> list[tuple[str, list[models.RequestLog]]]:
+    """按 provider **id** 分组，用名字展示。
+
+    按 id 而不是名字：provider 改名后，按名字分组会把同一台机器劈成两组。
+    生产实测 2026-09-09，同一台大连的机器以 `local_dalian_openrouter`(6,453) 和
+    `local-dalian-openrouter`(1,361) 各自统计，平均延迟一个 50,280ms、一个
+    31,339ms —— 两组都不代表这台机器的真实表现。
+
+    展示名取组内**最后出现**的 provider_name（日志按 id 倒序，也就是最新的那个），
+    这样改名后立刻显示新名，而不是停在历史第一条的旧名。
+
+    `include_unrouted` 由调用方决定：
+      · 分析页要看见「有多少请求根本没发出去」→ True；
+      · 告警/打分不能把它当供应商 → False（默认）。
+    """
+    groups: dict[int, list[models.RequestLog]] = {}
+    labels: dict[int, str] = {}
+    unrouted: list[models.RequestLog] = []
+    for row in rows:
+        if row.provider_id is None:
+            unrouted.append(row)
+            continue
+        groups.setdefault(row.provider_id, []).append(row)
+        if row.provider_name and row.provider_id not in labels:
+            labels[row.provider_id] = row.provider_name
+
+    out = [
+        (labels.get(pid, f"provider#{pid}"), grouped)
+        for pid, grouped in sorted(groups.items(), key=lambda kv: labels.get(kv[0], ""))
+    ]
+    if include_unrouted and unrouted:
+        out.append((_UNROUTED_LABEL, unrouted))
+    return out
+
+
 def _build_anomaly_alerts(
     db: Session,
     request_logs: list[models.RequestLog],
 ) -> list[schemas.AnomalyAlertItem]:
     alerts: list[schemas.AnomalyAlertItem] = []
-    provider_groups: dict[str, list[models.RequestLog]] = {}
-    for row in request_logs:
-        provider_groups.setdefault(row.provider_name or "unknown", []).append(row)
-
-    for provider_name, rows in sorted(provider_groups.items()):
+    # include_unrouted=False：护栏拦截和全候选失败不是某一家的失败，
+    # 拿它们报「provider 失败率 100%」是纯噪音。
+    for provider_name, rows in _group_by_provider(request_logs):
         if len(rows) < 2:
             continue
         failure_rate = sum(1 for row in rows if row.status_code >= 400) / len(rows)
@@ -4633,10 +4689,11 @@ def get_analytics_summary(
     blocked_requests = sum(1 for row in request_logs if row.error_code == "GUARDRAIL_BLOCKED_WORD")
     cache_hits = sum(1 for row in request_logs if row.cache_hit)
     sticky_requests = sum(1 for row in request_logs if row.sticky_key)
-    provider_groups: dict[str, list[models.RequestLog]] = {}
+    # 分析页要看见「有多少请求根本没发出去」，所以保留这一桶 —— 但它的标签必须
+    # 说清楚那不是一家供应商。
+    provider_series = _group_by_provider(request_logs, include_unrouted=True)
     model_groups: dict[str, list[models.RequestLog]] = {}
     for row in request_logs:
-        provider_groups.setdefault(row.provider_name or "unknown", []).append(row)
         model_groups.setdefault(row.resolved_model or row.requested_model, []).append(row)
 
     def build_series(label: str, rows: list[models.RequestLog]) -> schemas.AnalyticsSeriesItem:
@@ -4707,7 +4764,7 @@ def get_analytics_summary(
             )
             for workload_class, values in sorted(workload_shift_groups.items())
         ],
-        provider_breakdown=[build_series(label, rows) for label, rows in sorted(provider_groups.items())],
+        provider_breakdown=[build_series(label, rows) for label, rows in provider_series],
         model_breakdown=[build_series(label, rows) for label, rows in sorted(model_groups.items())],
         workspace_usage_summary=_build_workspace_usage_summary(db=db, request_logs=request_logs),
         cost_optimization_opportunities=_build_cost_optimization_opportunities(db=db, request_logs=request_logs),
