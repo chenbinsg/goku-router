@@ -1855,6 +1855,13 @@ def build_route_decision_trace(
     workload_class = classify_workload(request)
     route_weights, applied_profile_name, experiment_meta = _resolve_route_scoring_context(db, request, workload_class)
     sticky_provider_name = _resolve_sticky_provider_name(db, request)
+    # router/auto 没有路由规则可言（候选是整张 model_catalog），所以 `route` 只在
+    # else 分支里被赋值。下面构建 preferred_names 时两处都要读它 —— 不预置 None
+    # 就是 UnboundLocalError，**router/auto 的每一个请求直接 500**。
+    # 这正是 v1.5.19（2243513）引入主备名单时漏掉的：那次只想着「有路由规则」的
+    # 情形，而 router/auto 一条测试都没跑到我眼前 —— 实际上它当场打挂了
+    # test_gateway.py 里 18 条用例。
+    route = None
     if request.model == "router/auto":
         rows = (
             db.query(models.ModelCatalog, models.Provider)
