@@ -241,11 +241,45 @@ PYTHONPATH=backend pytest backend/tests/test_gateway.py -v
 # Lint
 ruff check backend/app/
 
-# DB migrations (Alembic)
-cd backend
-alembic upgrade head
-alembic revision --autogenerate -m "describe change"
 ```
+
+---
+
+## 数据库 schema 变更（⚠ 先读这一节再加列）
+
+**本仓库没有 Alembic。** README 此前写着 `alembic upgrade head` —— 那是错的，
+目录、配置都不存在。真实机制是两条：
+
+- 建表：`Base.metadata.create_all()`（只建不改，已存在的表原样跳过）；
+- 加列：`crud.ensure_schema()` 里一张**手写的 ALTER 清单**，按列名幂等。
+
+### 加一列必须先找 DBA 执行 DDL
+
+生产的应用账号（`goku_router_owner`）**没有 ALTER 权限**。而 `ensure_schema`
+被 `seed_demo_data` 以及几乎每个 admin/业务读路径调用，所以一条 ALTER 失败会让
+**每一个落库端点同时 500**，包括业务链路 `/v1/models`。
+
+这张清单里的列一直没出事，是因为它们早就被 DBA 建好了、ALTER 被跳过。
+**谁往清单里加下一列，谁就引爆它** —— 2026-09-09 v1.5.21 就是这么让生产瘫了
+4 分钟（`ALTER command denied to user 'goku_router_owner'`）。
+
+正确顺序：
+
+1. 请 DBA 执行 DDL，列一律 `NULL`（历史行无法诚实回填）：
+   ```sql
+   ALTER TABLE <表> ADD COLUMN <列> <类型> NULL;
+   ```
+2. 用 `SHOW COLUMNS FROM <表> LIKE '<列>'` **确认返回一行**；
+3. 把同一条 ALTER 加进 `ensure_schema` 的清单（供全新环境自举）；
+4. 发版，并把前置 DDL 写进 release commit message。
+
+### 两个别踩的坑
+
+- **只在 SQLite 上验证不算验证。** 本地是 SQLite、生产是 MySQL，权限模型完全
+  不同。上面那次事故里，语法完全正确，失败的是权限。
+- **`ensure_schema` 容错救不了缺列。** 就算 ALTER 失败被跳过，只要 ORM 模型
+  声明了那一列，SQLAlchemy 就会把它写进每条 SELECT，于是该表的**所有查询**
+  报 `Unknown column`。容错只防"迁移本身把服务打挂"，不防"列真的没有"。
 
 ---
 
