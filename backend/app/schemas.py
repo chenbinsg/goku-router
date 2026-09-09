@@ -153,6 +153,8 @@ class ProviderItem(BaseModel):
     input_cost_per_1k: float
     output_cost_per_1k: float
     avg_latency_ms: float
+    # 样本不足时为 None —— 这时打分退回 avg_latency_ms。
+    avg_output_tokens_per_sec: Optional[float] = None
     capabilities: List[str]
     supports_zdr: bool
     data_collection_mode: str

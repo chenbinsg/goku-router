@@ -260,6 +260,7 @@ def ensure_schema(db: Session):
             ("host_type", "ALTER TABLE providers ADD COLUMN host_type VARCHAR(32) DEFAULT 'external'"),
             ("region", "ALTER TABLE providers ADD COLUMN region VARCHAR(64)"),
             ("circuit_breaker_state", "ALTER TABLE providers ADD COLUMN circuit_breaker_state VARCHAR(32) DEFAULT 'closed'"),
+            ("avg_output_tokens_per_sec", "ALTER TABLE providers ADD COLUMN avg_output_tokens_per_sec FLOAT"),
         ],
         "router_api_keys": [
             ("organization_id", "ALTER TABLE router_api_keys ADD COLUMN organization_id INTEGER"),
@@ -1456,9 +1457,27 @@ def _provider_route_score(
     #   A provider with latency <= reference_latency_ms gets close to 1.0.
     #   Slower providers get proportionally lower score.
     # ------------------------------------------------------------------
-    reference_latency_ms = 5_000.0
-    avg_latency_ms = max(float(provider.avg_latency_ms or reference_latency_ms), 1.0)
-    latency_score = min(reference_latency_ms / avg_latency_ms, 1.0)
+    # 优先用**输出吞吐**（token/秒），退回整体耗时。
+    #
+    # avg_latency_ms 测的是整个请求耗时，而它混合了大小相差三个数量级的请求。
+    # 生产实测 2026-09-09，同一个 provider 同一时刻：
+    #     max_tokens=1     → 中位数 0.8 秒
+    #     max_tokens=4096  → 中位数 23.4 秒，最慢 265 秒
+    # 单一 EMA 于是在 5,011 / 14,425 / 22,787 / 171,839 之间来回游走 —— 那不是
+    # 机器在退化，是这个数在追逐最近碰巧跑过的是哪一档。我曾据此误报「延迟正在
+    # 爬升，趋势和上次故障前一样」，而那台机器当时能在 516ms 内响应。
+    #
+    # 吞吐与请求大小无关：那 13 条 250 秒的请求，速率是 15.5–18.3 tok/s，方差
+    # 极小 —— 稳态机器的签名。它才是该拿去比较的量。
+    reference_tokens_per_sec = 40.0
+    tps = getattr(provider, "avg_output_tokens_per_sec", None)
+    if tps and tps > 0:
+        latency_score = min(float(tps) / reference_tokens_per_sec, 1.0)
+    else:
+        # 样本不足（新 provider、或只跑过小请求）时退回旧口径，而不是编一个数。
+        reference_latency_ms = 5_000.0
+        avg_latency_ms = max(float(provider.avg_latency_ms or reference_latency_ms), 1.0)
+        latency_score = min(reference_latency_ms / avg_latency_ms, 1.0)
 
     # ------------------------------------------------------------------
     # Normalize cost score.
@@ -3462,6 +3481,7 @@ def list_providers(db: Session):
             input_cost_per_1k=row.input_cost_per_1k,
             output_cost_per_1k=row.output_cost_per_1k,
         avg_latency_ms=row.avg_latency_ms,
+        avg_output_tokens_per_sec=row.avg_output_tokens_per_sec,
         capabilities=_csv_to_list(row.capability_tags),
         supports_zdr=row.supports_zdr,
         data_collection_mode=row.data_collection_mode,
@@ -3494,6 +3514,7 @@ def create_provider(db: Session, provider: schemas.ProviderCreate):
         input_cost_per_1k=db_provider.input_cost_per_1k,
         output_cost_per_1k=db_provider.output_cost_per_1k,
         avg_latency_ms=db_provider.avg_latency_ms,
+        avg_output_tokens_per_sec=db_provider.avg_output_tokens_per_sec,
         capabilities=_csv_to_list(db_provider.capability_tags),
         supports_zdr=db_provider.supports_zdr,
         data_collection_mode=db_provider.data_collection_mode,
@@ -3569,6 +3590,7 @@ def update_provider(db: Session, provider_id: int, provider: schemas.ProviderCre
         input_cost_per_1k=db_provider.input_cost_per_1k,
         output_cost_per_1k=db_provider.output_cost_per_1k,
         avg_latency_ms=db_provider.avg_latency_ms,
+        avg_output_tokens_per_sec=db_provider.avg_output_tokens_per_sec,
         capabilities=_csv_to_list(db_provider.capability_tags),
         supports_zdr=db_provider.supports_zdr,
         data_collection_mode=db_provider.data_collection_mode,

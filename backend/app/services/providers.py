@@ -30,6 +30,28 @@ from .circuit_breaker import circuit_breakers
 logger = logging.getLogger(__name__)
 
 
+# 低于这个输出 token 数的请求不参与吞吐统计：耗时被排队/prefill/网络主导，
+# 算出来的 tok/s 描述的不是生成速度。见下方 _MIN_TOKENS_FOR_THROUGHPUT 的用处。
+_MIN_TOKENS_FOR_THROUGHPUT = 16
+
+
+def update_throughput_ema(provider, completion_tokens: int, elapsed_s: float,
+                          alpha: float = 0.1) -> float | None:
+    """把一次成功调用的输出吞吐并入 provider 的 EMA；样本不合格时原样返回。
+
+    抽成独立函数是为了能直接测那道闸门 —— 它藏在 provider 执行路径里时，
+    一次变异测试（删掉闸门）居然全绿，说明当时的测试只是在断言常量存在。
+    """
+    if (completion_tokens or 0) < _MIN_TOKENS_FOR_THROUGHPUT or elapsed_s <= 0:
+        return getattr(provider, "avg_output_tokens_per_sec", None)
+    tps = completion_tokens / elapsed_s
+    previous = getattr(provider, "avg_output_tokens_per_sec", None)
+    provider.avg_output_tokens_per_sec = round(
+        tps if previous in (None, 0) else alpha * tps + (1 - alpha) * previous, 2
+    )
+    return provider.avg_output_tokens_per_sec
+
+
 def _default_provider_timeout_s(provider: Provider) -> float:
     host_type = getattr(provider, "host_type", "external")
     if host_type == "internal":
@@ -544,6 +566,19 @@ def execute_chat_completion(
         previous_latency_ms = getattr(provider, "avg_latency_ms", None) or 0.0
         provider.avg_latency_ms = round(
             alpha * latency_ms + (1 - alpha) * previous_latency_ms, 2
+        )
+
+        # 输出吞吐（token/秒）—— 路由打分真正该用的量，与请求大小无关。
+        #
+        # ⚠ 小生成量的样本必须丢掉。一个 max_tokens=1 的请求耗时 0.8 秒，算出来
+        # 是 1.25 tok/s —— 那 0.8 秒几乎全是排队、prefill 和网络往返，不是生成
+        # 速度。生产上这类探活占最近 100 条请求的 30%，放进去会把吞吐 EMA 压垮，
+        # 让一台健康的机器看起来慢 30 倍。宁可样本少也不要有偏的样本。
+        update_throughput_ema(
+            provider,
+            getattr(result, "completion_tokens", 0) or 0,
+            latency_ms / 1000.0,
+            alpha,
         )
 
         circuit_breakers.record_success(provider.name)

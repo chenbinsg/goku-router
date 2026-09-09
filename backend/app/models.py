@@ -100,6 +100,12 @@ class Provider(Base):
     output_cost_per_1k = Column(Float, nullable=False, default=0.002)
     avg_latency_ms = Column(Float, nullable=False, default=500.0)
     latency_ema_alpha = Column(Float, nullable=False, default=0.1)  # v0.4: EMA smoothing factor
+    # 输出吞吐（token/秒）的 EMA。avg_latency_ms 测的是**整个请求耗时**，而请求
+    # 大小相差三个数量级（生产实测 max_tokens 从 1 到 4096），把 0.8 秒的探活和
+    # 250 秒的长生成平均进同一个数，结果永远落在双峰之间的谷底 —— 几乎没有任何
+    # 真实请求在那个数值附近。吞吐与请求大小无关，是机器本身的属性。
+    # 可空：样本不足时保持 None，打分退回旧口径而不是编一个数。
+    avg_output_tokens_per_sec = Column(Float, nullable=True)
     capability_tags = Column(String(512), nullable=False, default="chat")
     supports_zdr = Column(Boolean, nullable=False, default=False)
     data_collection_mode = Column(String(32), nullable=False, default="allow")
