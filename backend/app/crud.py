@@ -1715,21 +1715,29 @@ def _filter_and_sort_candidates(
     reference_price_per_1k = _candidate_reference_price(filtered)
     workload_class = classify_workload(request)
 
+    # `db` 必须传下去 —— 少了它，`_get_provider_quality_score` 直接返回 1.0，
+    # **质量分就完全不参与真正的排序**。
+    #
+    # 这是 v1.3.0（7feeac7）留下的半截改动：那次把 quality_multiplier 接进了
+    # `_provider_route_score`，却只在 `_build_candidate_trace` 的调用点传了 db，
+    # 漏了这里 —— 而**决定 selected_provider 的是这里**。于是自 2026-05-18 起，
+    # 「underperforming providers score lower automatically」这句 commit message
+    # 对路由行为一直不成立：drift monitor 每 6 小时算出来的质量分，只影响管理台
+    # 展示的 trace，不影响谁真的被选中。
+    #
+    # 同一份数据算出两个分、其中一个只用来显示 —— 这和 Qwen3.8 那次
+    # （界面写着 Preferred，运行时不认）是同一类故障，且同样无法从界面察觉。
+    _score_cache: dict[str, float] = {}
+
     def _score(provider: models.Provider) -> float:
-        # ⚠ 注意这里**没有**传 db —— 与上面 `_build_candidate_trace` 不同。
-        #
-        # `_get_provider_quality_score` 在 db 为 None 时直接返回 1.0，也就是说
-        # **决定性排序不看 ProviderQualityScore，而展示给运维看的 trace 看**。
-        # 于是 trace 里的 `route_score` 与真正用来排序的分可以不相等，
-        # 差一个 quality_multiplier —— 又一处「界面说的和运行时做的不一样」。
-        #
-        # 这是既有行为，不在本次成本修复的范围内：drift_monitor_job 会往
-        # ProviderQualityScore 写数，贸然接上等于同时改两个维度，出了问题无法归因。
-        # 单独立项修，届时要先查清生产表里有哪些行、分值多少。
-        return _provider_route_score(
-            provider, request, workload_class, route_weights,
-            reference_price_per_1k=reference_price_per_1k,
-        )[0]
+        # list.sort 对每个元素只求一次 key，所以每个候选最多查一次库；
+        # 缓存是为了两个分支都引用 _score 时不重复查。
+        if provider.name not in _score_cache:
+            _score_cache[provider.name] = _provider_route_score(
+                provider, request, workload_class, route_weights, db=db,
+                reference_price_per_1k=reference_price_per_1k,
+            )[0]
+        return _score_cache[provider.name]
 
     filtered.sort(
         key=lambda item: (
