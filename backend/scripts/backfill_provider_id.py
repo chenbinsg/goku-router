@@ -103,6 +103,13 @@ def main() -> int:
         help="把一个名字并入另一个 provider，可重复。"
              "例：--merge local-dalian-openrouter=local_dalian_openrouter",
     )
+    ap.add_argument(
+        "--discard", action="append", default=[], metavar="名字",
+        help="显式放弃某个名字：这些行的 provider_id 保持 NULL，可重复。"
+             "用于机器已下线且不打算重建 provider 行的情况（决策 B2）。"
+             "必须逐个写明 —— 默认行为是遇到映射不到的名字就中止，"
+             "以免『留 NULL』悄悄变成事实上的默认。",
+    )
     ap.add_argument("--batch", type=int, default=5000, help="每批提交行数（默认 5000）")
     ap.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
     args = ap.parse_args()
@@ -118,6 +125,8 @@ def main() -> int:
             return 2
         old, new = item.split("=", 1)
         merge[old.strip()] = new.strip()
+
+    discard = {d.strip() for d in args.discard}
 
     db, engine = _connect(args.database_url)
     try:
@@ -140,6 +149,7 @@ def main() -> int:
             bad = 0
             for table, name_col in TABLES.items():
                 left = _pending(db, table, name_col)
+                left = {n: c for n, c in left.items() if n not in discard}
                 if left:
                     bad += sum(left.values())
                     print(f"❌ {table}: 仍有 {sum(left.values())} 行未映射 -> {left}")
@@ -165,10 +175,18 @@ def main() -> int:
                 print(f"{table}: 没有待回填的行")
                 continue
             ok, missing = _resolve(names, ids, merge)
+            discarded = {n: c for n, c in missing.items() if n in discard}
+            missing = {n: c for n, c in missing.items() if n not in discard}
             sentinels = {n: c for n, c in missing.items() if n in SENTINEL_NAMES}
             real_missing = {n: c for n, c in missing.items() if n not in SENTINEL_NAMES}
             if real_missing or sentinels:
                 blockers[table] = (real_missing, sentinels)
+            if discarded:
+                print(f"\n{table} —— 显式放弃（provider_id 保持 NULL）:")
+                for name, count in sorted(discarded.items(), key=lambda x: -x[1]):
+                    print(f"  {name!r}: {count} 行")
+                print("  ⚠ 这些行将无法参与任何按 provider_id 的聚合。"
+                      "provider_name 仍在，可读但不可关联。")
             resolved[table] = (name_col, ok)
 
         if blockers:
