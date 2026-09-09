@@ -831,6 +831,23 @@ def update_route_scoring_experiment(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@app.post("/admin/router-scoring/profiles/activate", response_model=schemas.RouteScoringProfileItem)
+def activate_route_scoring_profile(
+    profile_name: str,
+    db: Session = Depends(get_db),
+):
+    """把某个打分档案设为唯一活跃项。传 "default_heuristic_profile" 回到内置默认。
+
+    在这之前活跃档案只进不出：train/recalibrate 会把自己新造的档案置为 active，
+    没有任何端点能改回来。一个自动重算出的坏档案因此可以永久占位。
+    """
+    try:
+        crud.set_active_route_scoring_profile(db=db, profile_name=profile_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return crud.get_route_scoring_profile(db=db)
+
+
 @app.post("/admin/router-scoring/replay", response_model=schemas.RouteReplayResponse)
 def replay_route_scoring(request: schemas.RouteReplayRequest, db: Session = Depends(get_db)):
     return crud.replay_route_scoring(db=db, request=request)

@@ -322,6 +322,7 @@ def start_scheduler():
     _auto_optimize = os.environ.get("ROUTER_AUTO_OPTIMIZE", "false").lower() in ("1", "true", "yes")
     if _auto_optimize:
         # Drift monitor + provider quality scores: every 6 hours  (v1.3.0)
+        # **发起**实验的是它，所以它继续受开关控制。
         _scheduler.add_job(
             drift_monitor_job,
             IntervalTrigger(hours=6),
@@ -329,20 +330,29 @@ def start_scheduler():
             replace_existing=True,
         )
 
-        # A/B significance check: nightly at 03:00 UTC  (v1.3.0)
-        _scheduler.add_job(
-            ab_significance_check_job,
-            CronTrigger(hour=3, minute=0),
-            id="ab_significance_check",
-            replace_existing=True,
-        )
+    # A/B 显著性判定：每晚 03:00 UTC。**不受 ROUTER_AUTO_OPTIMIZE 控制。**
+    #
+    # 它此前和 drift monitor 共用一个开关，于是关掉开关停掉的是裁判、不是比赛：
+    # 2026-06-10 发起的 auto_exp_20260610_0500 就这样一直 active 到 09-09，
+    # 整整三个月无人判定 —— 而实验一旦 active 就接管全部流量的权重选择
+    # （见 _resolve_route_scoring_context），并非只影响它自己那 10%。
+    #
+    # 这个 job 只读当前 active 的实验并做 promote/rollback，从不新建实验
+    # （新建在 drift_monitor_job 里）。所以让它常驻是安全的，而且正是
+    # 「关掉自动优化」应有的语义：不再开新实验，但已开的必须有人收尾。
+    _scheduler.add_job(
+        ab_significance_check_job,
+        CronTrigger(hour=3, minute=0),
+        id="ab_significance_check",
+        replace_existing=True,
+    )
 
     _scheduler.start()
     logger.info(
         "Background scheduler started (auto_optimize=%s; jobs: billing_rollup, "
-        "log_retention, anomaly_sweep%s)",
+        "log_retention, anomaly_sweep, ab_significance_check%s)",
         _auto_optimize,
-        ", drift_monitor, ab_significance_check" if _auto_optimize else "",
+        ", drift_monitor" if _auto_optimize else "",
     )
 
 

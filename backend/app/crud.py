@@ -5594,6 +5594,38 @@ def _two_proportion_z_test(n1: int, x1: int, n2: int, x2: int) -> float:
     return round(p_value, 6)
 
 
+DEFAULT_SCORING_PROFILE_NAME = "default_heuristic_profile"
+
+
+def set_active_route_scoring_profile(db: Session, profile_name: str) -> str:
+    """把某个打分档案设为唯一活跃项；传内置默认名则让所有档案下线。
+
+    此前**没有任何途径**能改活跃档案：`train`/`recalibrate` 会顺手把自己新造的
+    档案置为 active，除此之外只进不出。于是一个坏档案一旦上位就下不来 ——
+    2026-06-21 自动重算出的 `auto_recalibrated`（每一档都是 cost 0.8）就这么
+    卡在活跃位上三个月。
+
+    `default_heuristic_profile` 不是数据库里的行，是 `_get_active_route_scoring_profile`
+    查不到 active 行时的兜底。所以「切回默认」= 把所有行都置 inactive。
+    """
+    db.query(models.RouteScoringProfile).update(
+        {models.RouteScoringProfile.status: "inactive"}
+    )
+    if profile_name != DEFAULT_SCORING_PROFILE_NAME:
+        row = (
+            db.query(models.RouteScoringProfile)
+            .filter(models.RouteScoringProfile.name == profile_name)
+            .first()
+        )
+        if row is None:
+            db.rollback()
+            raise ValueError(f"INVALID_ROUTE_SCORING_PROFILE: {profile_name}")
+        row.status = "active"
+    _record_audit_log(db, "route_scoring_profile_activated", f"Active scoring profile → {profile_name}")
+    db.commit()
+    return _get_active_route_scoring_profile_name(db)
+
+
 def run_ab_significance_check(db: Session) -> schemas.ABSignificanceResult:
     """
     Nightly A/B significance check on the currently active experiment.
@@ -5708,6 +5740,30 @@ def run_ab_significance_check(db: Session) -> schemas.ABSignificanceResult:
             message += " → PROMOTED"
         else:
             # Rollback: challenger is worse
+            #
+            # 此前这里**只把实验置为结束，什么都没回滚**。而挑战者档案在被
+            # recalibrate 造出来时就已经是 status=active 了，实验一结束就掉进
+            # fallback（`_get_active_route_scoring_profile_name`）—— 于是「判定
+            # 挑战者更差」的结局，是把挑战者交给 100% 的流量。
+            # promote 和 rollback 效果完全相同，这条分支等于不存在。
+            #
+            # 现在显式把活跃档案恢复成对照组。
+            challenger_row = (
+                db.query(models.RouteScoringProfile)
+                .filter(models.RouteScoringProfile.name == experiment.challenger_profile_name)
+                .first()
+            )
+            if challenger_row is not None:
+                challenger_row.status = "inactive"
+            control_row = (
+                db.query(models.RouteScoringProfile)
+                .filter(models.RouteScoringProfile.name == experiment.control_profile_name)
+                .first()
+            )
+            if control_row is not None:
+                control_row.status = "active"
+            # 对照组是内置默认（不在库里）时，让所有档案保持 inactive 即可 ——
+            # 兜底自然回到 default_heuristic_profile。
             experiment.status = "concluded_rolled_back"
             experiment.updated_at = now
             db.add(models.NotificationRecord(
