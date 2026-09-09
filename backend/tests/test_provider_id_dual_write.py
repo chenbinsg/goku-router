@@ -89,3 +89,24 @@ class TestFreshEnvironmentsCanBootstrap:
         src = inspect.getsource(crud.ensure_schema)
         assert "ALTER TABLE request_logs ADD COLUMN provider_id" in src
         assert "ALTER TABLE provider_quality_scores ADD COLUMN provider_id" in src
+
+
+class TestProviderIdIsInspectable:
+    """写进去了还得看得见 —— 否则「有没有写」在界面上无从确认。
+
+    v1.5.24 上线后写入侧已双写，但 /admin/logs 的响应里只有名字，于是没人能验证
+    id 是否真的落库。这一整轮排查反复撞见同一类缺口：改了、但看不见。
+    """
+
+    def test_the_log_api_exposes_provider_id(self):
+        from app import schemas
+        assert "provider_id" in schemas.RequestLogItem.model_fields, (
+            "/admin/logs 不返回 provider_id —— 无法验证双写是否生效"
+        )
+
+    def test_the_mapper_actually_fills_it(self):
+        import inspect
+        src = inspect.getsource(crud.list_request_logs)
+        assert "provider_id=row.provider_id," in src, (
+            "schema 声明了字段但映射没填，响应里会恒为 null"
+        )

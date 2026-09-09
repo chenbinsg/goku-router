@@ -232,6 +232,10 @@ class RequestLogItem(BaseModel):
     requested_model: str
     resolved_model: Optional[str] = None
     provider_name: Optional[str] = None
+    # 暴露 id 是为了**能验证它确实写进去了**。v1.5.24 上线后，写入侧改成双写 id
+    # 与名字，但这个响应里只有名字 —— 于是「id 到底有没有写」在界面上无从确认。
+    # 这一整轮排查反复撞见的正是这类缺口：改了、但看不见，等于没法判断。
+    provider_id: Optional[int] = None
     workload_class: Optional[str] = None
     applied_profile_name: Optional[str] = None
     experiment_name: Optional[str] = None

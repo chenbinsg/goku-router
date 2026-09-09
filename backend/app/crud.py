@@ -3840,6 +3840,7 @@ def list_request_logs(
                 requested_model=row.requested_model,
                 resolved_model=row.resolved_model,
                 provider_name=row.provider_name,
+                provider_id=row.provider_id,
                 workload_class=(trace.get("workload_class") if trace else None),
                 applied_profile_name=(trace.get("applied_profile_name") if trace else None),
                 experiment_name=experiment.get("name"),
