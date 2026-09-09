@@ -1421,6 +1421,7 @@ def _provider_route_score(
     workload_class: str,
     weights: dict[str, float] | None = None,
     db: Session | None = None,
+    reference_price_per_1k: float | None = None,
 ) -> tuple[float, dict[str, float]]:
     """
     Calculate provider route score.
@@ -1472,9 +1473,24 @@ def _provider_route_score(
     #   A provider with price <= reference_price_per_1k gets close to 1.0.
     #   More expensive providers get proportionally lower score.
     # ------------------------------------------------------------------
-    reference_price_per_1k = 0.01
-    safe_total_price = max(float(total_price or reference_price_per_1k), 0.000001)
-    cost_score = min(reference_price_per_1k / safe_total_price, 1.0)
+    # 参考价取**候选集里最便宜的那家**，而不是写死的常量。
+    #
+    # 写死 0.01 的后果：`min(0.01 / price, 1.0)` 对任何单价低于 1 美分/1k 的
+    # provider 都返回 1.0，而现网全部落在 0.001–0.003 区间 —— **全撞天花板**。
+    # 于是一个占 70–80% 权重的维度对所有候选给出同一个分，完全不参与决策，
+    # 路由实际上只由 10% 权重的延迟决定（2026-09-09 实测）。
+    #
+    # 注释里记着上一次改动的动机是「旧逻辑 1/total_price 会让成本支配一切」。
+    # 那次修过头了：从「支配一切」变成了「完全不说话」。取候选集最低价能同时
+    # 避开两头 —— 最便宜的得 1.0，其余按倍数递减，且没有需要随物价调整的魔法数。
+    #
+    # ⚠ 前提是各 provider 的价格**如实填写**。自建推理的边际成本远低于商用 API，
+    # 若照抄商用报价（现网 openrouter 与 TOKENSTARS 都是 0.001/0.002，一字不差），
+    # 那么无论参考价怎么取，成本维度依然分不出胜负 —— 那是数据问题，不是这里的。
+    _fallback_reference = 0.01
+    reference = float(reference_price_per_1k or _fallback_reference)
+    safe_total_price = max(float(total_price or reference), 0.000001)
+    cost_score = min(max(reference, 0.000001) / safe_total_price, 1.0)
 
     # ------------------------------------------------------------------
     # Provider quality from drift monitor / health measurements.
@@ -1528,6 +1544,25 @@ def _provider_route_score(
     }
 
 
+def _candidate_reference_price(
+    candidates: list[tuple[models.Provider, models.ModelCatalog]],
+) -> float | None:
+    """候选集里最便宜的单价（输入+输出，每 1k token），用作成本维度的参考基准。
+
+    取最小值而不是均值/中位数：成本得分的语义是「相对最优有多贵」，最便宜的那家
+    理应拿满分 1.0。均值会让**所有人**都拿到接近 1 的分，重蹈写死常量的覆辙。
+
+    单候选时返回它自己的价格 → cost_score = 1.0。这是对的：只有一个选择时，
+    成本维度本来就没有可比性，不该凭空给它一个高分或低分去影响别的维度。
+    """
+    prices = [
+        float(p.input_cost_per_1k + p.output_cost_per_1k)
+        for p, _ in candidates
+        if (p.input_cost_per_1k or 0) + (p.output_cost_per_1k or 0) > 0
+    ]
+    return min(prices) if prices else None
+
+
 def _build_candidate_trace(
     request: schemas.ChatCompletionRequest,
     candidates: list[tuple[models.Provider, models.ModelCatalog]],
@@ -1558,13 +1593,18 @@ def _build_candidate_trace(
     )
     preferred_index = {name: index for index, name in enumerate(preferred_order)}
     workload_class = classify_workload(request)
+    # 参考价必须在进循环**之前**算好 —— 它是候选集的属性，不是单个 provider 的。
+    reference_price_per_1k = _candidate_reference_price(candidates)
     traces: list[dict[str, Any]] = []
     for provider, mapping in candidates:
         capabilities = _provider_capabilities(provider)
         supported_parameters = _provider_supported_parameters(provider)
         total_price = provider.input_cost_per_1k + provider.output_cost_per_1k
         sort_key = _provider_sort_key(provider, request)
-        route_score, score_components = _provider_route_score(provider, request, workload_class, route_weights, db=db)
+        route_score, score_components = _provider_route_score(
+            provider, request, workload_class, route_weights, db=db,
+            reference_price_per_1k=reference_price_per_1k,
+        )
         accepted = True
         reject_reason = None
         if not required_capabilities.issubset(capabilities):
@@ -1671,14 +1711,34 @@ def _filter_and_sort_candidates(
 
     sort_mode = request.provider.sort if request.provider else "balanced"
 
+    # 参考价按**过滤后**的集合算：被能力/上限拒掉的候选不该影响还在场的人的得分。
+    reference_price_per_1k = _candidate_reference_price(filtered)
+    workload_class = classify_workload(request)
+
+    def _score(provider: models.Provider) -> float:
+        # ⚠ 注意这里**没有**传 db —— 与上面 `_build_candidate_trace` 不同。
+        #
+        # `_get_provider_quality_score` 在 db 为 None 时直接返回 1.0，也就是说
+        # **决定性排序不看 ProviderQualityScore，而展示给运维看的 trace 看**。
+        # 于是 trace 里的 `route_score` 与真正用来排序的分可以不相等，
+        # 差一个 quality_multiplier —— 又一处「界面说的和运行时做的不一样」。
+        #
+        # 这是既有行为，不在本次成本修复的范围内：drift_monitor_job 会往
+        # ProviderQualityScore 写数，贸然接上等于同时改两个维度，出了问题无法归因。
+        # 单独立项修，届时要先查清生产表里有哪些行、分值多少。
+        return _provider_route_score(
+            provider, request, workload_class, route_weights,
+            reference_price_per_1k=reference_price_per_1k,
+        )[0]
+
     filtered.sort(
         key=lambda item: (
             preferred_index.get(item[0].name, len(preferred_index)),
             0 if sticky_provider_name and item[0].name == sticky_provider_name else 1,
             *(
-                (_provider_sort_key(item[0], request), -_provider_route_score(item[0], request, classify_workload(request), route_weights)[0])
+                (_provider_sort_key(item[0], request), -_score(item[0]))
                 if sort_mode in {"price", "latency", "priority"}
-                else (-_provider_route_score(item[0], request, classify_workload(request), route_weights)[0], _provider_sort_key(item[0], request))
+                else (-_score(item[0]), _provider_sort_key(item[0], request))
             ),
         )
     )
