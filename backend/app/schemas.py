@@ -1,6 +1,7 @@
+from datetime import datetime
 from typing import Any, List, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class ChatMessage(BaseModel):
@@ -895,6 +896,20 @@ class ProviderQualityScoreItem(BaseModel):
     updated_at: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    # 本文件的约定是时间一律以 ISO 字符串出网，而 ORM 上 `updated_at` 是 DateTime。
+    # 其它端点靠 crud/路由层手工 `.isoformat()` 绕过，唯独这个端点直接
+    # `response_model` + `from_attributes` 读 ORM 对象 —— 于是**只要表里有一行**，
+    # 就会 ResponseValidationError → 500。空表返回 [] 反而正常。
+    #
+    # 后果不只是端点坏掉：这是查看质量分的唯一入口（没有对应的前端页面），
+    # 它一坏，「drift monitor 算出来的分从没影响过路由」这件事就没人看得见。
+    # 2026-06-16~21 那五天 ROUTER_AUTO_OPTIMIZE 开着，写进去 21 轮数据，
+    # 而这个端点从那天起就一直 500，没人发现。
+    @field_validator("updated_at", mode="before")
+    @classmethod
+    def _isoformat_datetime(cls, value):
+        return value.isoformat() if isinstance(value, datetime) else value
 
 
 # ── v1.3.0: Recalibration Events ──────────────────────────────────────────────
