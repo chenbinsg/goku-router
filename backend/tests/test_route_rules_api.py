@@ -37,6 +37,16 @@ def test_delete_route_rule_removes_rule_from_admin_list():
     suffix = uuid.uuid4().hex[:8]
     provider_id = _create_mock_provider(f"route_delete_provider_{suffix}")
     model_id = f"route-delete-model-{suffix}"
+    mapping_response = client.post(
+        "/admin/models",
+        json={
+            "model_id": model_id,
+            "provider_id": provider_id,
+            "provider_model_name": model_id,
+            "status": "active",
+        },
+    )
+    assert mapping_response.status_code == 200
 
     create_response = client.post(
         "/admin/routes",
@@ -59,6 +69,43 @@ def test_delete_route_rule_removes_rule_from_admin_list():
 
     cleanup_response = client.delete(f"/admin/providers/{provider_id}")
     assert cleanup_response.status_code == 204
+
+
+def test_route_rule_rejects_backup_without_matching_active_model_mapping():
+    suffix = uuid.uuid4().hex[:8]
+    primary_id = _create_mock_provider(f"route_primary_{suffix}")
+    backup_id = _create_mock_provider(f"route_backup_{suffix}")
+    model_id = f"route-mapping-guard-{suffix}"
+    mapping_response = client.post(
+        "/admin/models",
+        json={
+            "model_id": model_id,
+            "provider_id": primary_id,
+            "provider_model_name": model_id,
+            "status": "active",
+        },
+    )
+    assert mapping_response.status_code == 200
+
+    response = client.post(
+        "/admin/routes",
+        json={
+            "model_id": model_id,
+            "preferred_provider_id": primary_id,
+            "backup_provider_id": backup_id,
+            "timeout_ms": 60000,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        f"ROUTE_MODEL_MAPPING_MISSING: model={model_id} "
+        f"provider=route_backup_{suffix}"
+    )
+    assert all(route["model_id"] != model_id for route in client.get("/admin/routes").json())
+
+    assert client.delete(f"/admin/providers/{primary_id}").status_code == 204
+    assert client.delete(f"/admin/providers/{backup_id}").status_code == 204
 
 
 def test_delete_route_rule_returns_404_for_missing_rule():

@@ -3782,6 +3782,56 @@ def list_route_rules(db: Session):
 
 def upsert_route_rule(db: Session, route_rule: schemas.RouteRuleCreate):
     seed_demo_data(db)
+    provider_ids = [route_rule.preferred_provider_id]
+    if route_rule.backup_provider_id is not None:
+        if route_rule.backup_provider_id == route_rule.preferred_provider_id:
+            raise ValueError("ROUTE_PROVIDERS_MUST_DIFFER")
+        provider_ids.append(route_rule.backup_provider_id)
+
+    # A route is executable only when every configured provider has an active
+    # mapping for the route's logical model id.  Previously an absent/mistyped
+    # backup mapping was silently dropped by `_resolve_candidates`: the admin
+    # page still displayed a backup provider, but failover never attempted it.
+    # Reject that split-brain configuration at write time instead.
+    providers = {
+        provider.id: provider
+        for provider in db.query(models.Provider)
+        .filter(models.Provider.id.in_(provider_ids))
+        .all()
+    }
+    missing_providers = [provider_id for provider_id in provider_ids if provider_id not in providers]
+    if missing_providers:
+        raise ValueError(f"INVALID_PROVIDER: {missing_providers[0]}")
+
+    inactive_providers = [
+        providers[provider_id].name
+        for provider_id in provider_ids
+        if providers[provider_id].status != "active"
+    ]
+    if inactive_providers:
+        raise ValueError(f"ROUTE_PROVIDER_NOT_ACTIVE: {inactive_providers[0]}")
+
+    active_mapping_provider_ids = {
+        provider_id
+        for (provider_id,) in db.query(models.ModelCatalog.provider_id)
+        .filter(
+            models.ModelCatalog.model_id == route_rule.model_id,
+            models.ModelCatalog.provider_id.in_(provider_ids),
+            models.ModelCatalog.status == "active",
+        )
+        .all()
+    }
+    missing_mappings = [
+        providers[provider_id].name
+        for provider_id in provider_ids
+        if provider_id not in active_mapping_provider_ids
+    ]
+    if missing_mappings:
+        raise ValueError(
+            f"ROUTE_MODEL_MAPPING_MISSING: model={route_rule.model_id} "
+            f"provider={missing_mappings[0]}"
+        )
+
     existing = db.query(models.RouteRule).filter(models.RouteRule.model_id == route_rule.model_id).first()
     if existing is None:
         existing = models.RouteRule(**route_rule.model_dump())

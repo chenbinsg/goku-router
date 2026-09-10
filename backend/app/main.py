@@ -660,7 +660,10 @@ def list_route_rules(db: Session = Depends(get_db)):
 
 @app.post("/admin/routes", response_model=schemas.RouteRuleItem)
 def upsert_route_rule(route_rule: schemas.RouteRuleCreate, db: Session = Depends(get_db)):
-    return crud.upsert_route_rule(db=db, route_rule=route_rule)
+    try:
+        return crud.upsert_route_rule(db=db, route_rule=route_rule)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.delete("/admin/routes/{route_id}", status_code=204)
