@@ -303,6 +303,18 @@ def _messages_for_provider(provider: Provider, request: schemas.ChatCompletionRe
     return messages
 
 
+def _uses_qwen_chat_template(provider: Provider, model: ModelCatalog) -> bool:
+    """Return whether this upstream model expects the Qwen chat-template knobs.
+
+    Provider names are deployment labels, not adapter capabilities.  A Qwen model
+    can be served by several OpenAI-compatible providers (for example a primary
+    node and a Tokyo backup), so keying this behaviour only on the literal name
+    ``openrouter`` makes fallback requests silently run with thinking enabled.
+    """
+    names = (model.model_id, model.provider_model_name, provider.name)
+    return any("qwen" in (name or "").lower() for name in names)
+
+
 # ── OpenAI-compatible adapter (covers vLLM, Ollama, OpenAI, DeepSeek, etc.) ───
 def _log_timestamp() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
@@ -351,9 +363,10 @@ def _execute_openai_compatible_chat_completion(
     if request.extra_body:
         payload.update(request.extra_body)
 
-    # For the openrouter provider (vLLM serving Qwen3 models), always inject
-    # thinking-off + recommended sampling params unless the caller already set them.
-    if provider.name == "openrouter":
+    # Qwen models served by any OpenAI-compatible provider need the same chat
+    # template defaults.  In particular, backup nodes must not re-enable thinking
+    # merely because their provider label differs from the primary node.
+    if _uses_qwen_chat_template(provider, model):
         payload.setdefault("top_k", 20)
         payload.setdefault("top_p", 0.8)
         payload.setdefault("presence_penalty", 1.5)

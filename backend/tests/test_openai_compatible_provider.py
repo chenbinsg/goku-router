@@ -84,6 +84,48 @@ def test_openai_compatible_provider_executes_via_httpx(monkeypatch):
     assert result.provider_reported_cost == 0.0123
 
 
+def test_qwen_defaults_apply_to_backup_provider_name(monkeypatch):
+    provider = Provider(
+        name="TOKYO_QWEN",
+        adapter_type="openai_compatible",
+        status="active",
+        health_status="healthy",
+        priority=75,
+    )
+    model = ModelCatalog(
+        model_id="Qwen3.8",
+        provider_id=2,
+        provider_model_name="Qwen/Qwen3.8-27B-FP8",
+        status="active",
+    )
+    request = schemas.ChatCompletionRequest(
+        model="Qwen3.8",
+        messages=[schemas.ChatMessage(role="user", content="Reply OK only.")],
+    )
+    captured = {}
+
+    def fake_post(url, json, headers, timeout):
+        captured["json"] = json
+        return DummyResponse(
+            {
+                "choices": [{"message": {"content": "OK"}}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 1},
+            }
+        )
+
+    monkeypatch.setenv("PROVIDER_TOKYO_QWEN_BASE_URL", "https://example.test/v1")
+    monkeypatch.setenv("PROVIDER_TOKYO_QWEN_API_KEY", "secret-key")
+    monkeypatch.setattr(providers.httpx, "post", fake_post)
+
+    result = providers.execute_chat_completion(provider, model, request)
+
+    assert result.completion == "OK"
+    assert captured["json"]["top_k"] == 20
+    assert captured["json"]["top_p"] == 0.8
+    assert captured["json"]["presence_penalty"] == 1.5
+    assert captured["json"]["chat_template_kwargs"] == {"enable_thinking": False}
+
+
 def test_openrouter_provider_converts_system_only_prompt_to_user(monkeypatch):
     provider = Provider(
         name="openrouter",
