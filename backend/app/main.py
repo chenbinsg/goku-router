@@ -19,6 +19,7 @@ from .logging_config import setup_logging
 from .db import SessionLocal, engine
 from .services.circuit_breaker import circuit_breakers
 from .services.concurrency import provider_concurrency
+from .services import rate_limit
 from .services.scheduler import start_scheduler, stop_scheduler
 from .services.secrets import SecretKeyMissing
 from .services.auth import (
@@ -185,15 +186,34 @@ def require_api_key(
         bearer_token = authorization[7:].strip()
 
     candidate_keys = [value for value in [x_api_key, bearer_token] if value]
+    context = None
     for candidate in candidate_keys:
         if candidate in allowed_keys:
             suffix = candidate[-4:] if len(candidate) >= 4 else candidate
-            return {"label": f"key_...{suffix}", "organization_id": None, "project_id": None}
+            context = {"label": f"key_...{suffix}", "organization_id": None, "project_id": None}
+            break
         db_key_context = crud.find_router_api_key_context(db=db, candidate_key=candidate)
         if db_key_context:
-            return db_key_context
+            context = db_key_context
+            break
 
-    raise HTTPException(status_code=401, detail="Invalid or missing API key")
+    if context is None:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+    # Per-key request-rate limit (v1.5.31). Per-key rpm_limit wins; otherwise the
+    # process-wide RATELIMIT_DEFAULT_RPM. Throttles a runaway client before it can
+    # saturate upstreams, rather than relying on someone disabling the key.
+    limit = context.get("rpm_limit")
+    if limit is None:
+        limit = rate_limit.default_rpm()
+    allowed, retry_after = rate_limit.rate_limiter.check(context["label"], limit)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"RATE_LIMITED: API key exceeded {limit} requests/min",
+            headers={"Retry-After": str(int(retry_after) + 1)},
+        )
+    return context
 
 
 def _dispatch_chat_completion(

@@ -352,6 +352,7 @@ class RouterApiKeyItem(BaseModel):
     project_id: Optional[int] = None
     environment: Optional[str] = None
     quota_requests: Optional[int] = None
+    rpm_limit: Optional[int] = None
     request_count: int = 0
     expires_at: Optional[str] = None
     rotated_from_key_id: Optional[int] = None
@@ -365,6 +366,7 @@ class RouterApiKeyCreate(BaseModel):
     project_id: Optional[int] = None
     environment: Optional[str] = None
     quota_requests: Optional[int] = None
+    rpm_limit: Optional[int] = None
     expires_at: Optional[str] = None
 
 
@@ -377,6 +379,7 @@ class RouterApiKeyCreateResult(BaseModel):
     project_id: Optional[int] = None
     environment: Optional[str] = None
     quota_requests: Optional[int] = None
+    rpm_limit: Optional[int] = None
     request_count: int = 0
     expires_at: Optional[str] = None
     rotated_from_key_id: Optional[int] = None
@@ -390,6 +393,7 @@ class RouterApiKeyUpdate(BaseModel):
     project_id: Optional[int] = None
     environment: Optional[str] = None
     quota_requests: Optional[int] = None
+    rpm_limit: Optional[int] = None
     expires_at: Optional[str] = None
 
 

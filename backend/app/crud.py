@@ -298,6 +298,7 @@ def ensure_schema(db: Session, *, force: bool = False):
             ("spend_usd", "ALTER TABLE router_api_keys ADD COLUMN spend_usd FLOAT DEFAULT 0"),
             ("expires_at", "ALTER TABLE router_api_keys ADD COLUMN expires_at DATETIME"),
             ("rotated_from_key_id", "ALTER TABLE router_api_keys ADD COLUMN rotated_from_key_id INTEGER"),
+            ("rpm_limit", "ALTER TABLE router_api_keys ADD COLUMN rpm_limit INTEGER"),
         ],
         "prompt_cache_entries": [
             ("response_healed", "ALTER TABLE prompt_cache_entries ADD COLUMN response_healed BOOLEAN DEFAULT 0"),
@@ -3977,6 +3978,7 @@ def list_router_api_keys(db: Session):
             project_id=row.project_id,
             environment=row.environment,
             quota_requests=row.quota_requests,
+            rpm_limit=row.rpm_limit,
             request_count=row.request_count,
             expires_at=row.expires_at.isoformat() if row.expires_at else None,
             rotated_from_key_id=row.rotated_from_key_id,
@@ -3997,6 +3999,7 @@ def create_router_api_key(db: Session, api_key: schemas.RouterApiKeyCreate):
         project_id=api_key.project_id,
         environment=api_key.environment,
         quota_requests=api_key.quota_requests,
+        rpm_limit=api_key.rpm_limit,
         request_count=0,
         expires_at=_parse_optional_datetime(api_key.expires_at),
     )
@@ -4013,6 +4016,7 @@ def create_router_api_key(db: Session, api_key: schemas.RouterApiKeyCreate):
         project_id=db_key.project_id,
         environment=db_key.environment,
         quota_requests=db_key.quota_requests,
+        rpm_limit=db_key.rpm_limit,
         request_count=db_key.request_count,
         expires_at=db_key.expires_at.isoformat() if db_key.expires_at else None,
         rotated_from_key_id=db_key.rotated_from_key_id,
@@ -4056,6 +4060,7 @@ def rotate_router_api_key(db: Session, key_id: int, payload: schemas.RouterApiKe
         project_id=existing.project_id,
         environment=existing.environment,
         quota_requests=payload.quota_requests if payload.quota_requests is not None else existing.quota_requests,
+        rpm_limit=existing.rpm_limit,
         request_count=0,
         expires_at=_parse_optional_datetime(payload.expires_at) if payload.expires_at is not None else existing.expires_at,
         rotated_from_key_id=existing.id,
@@ -4073,6 +4078,7 @@ def rotate_router_api_key(db: Session, key_id: int, payload: schemas.RouterApiKe
         project_id=db_key.project_id,
         environment=db_key.environment,
         quota_requests=db_key.quota_requests,
+        rpm_limit=db_key.rpm_limit,
         request_count=db_key.request_count,
         expires_at=db_key.expires_at.isoformat() if db_key.expires_at else None,
         rotated_from_key_id=db_key.rotated_from_key_id,
@@ -4103,6 +4109,7 @@ def find_router_api_key_context(db: Session, candidate_key: str) -> dict[str, in
         "organization_id": db_key.organization_id,
         "project_id": db_key.project_id,
         "environment": db_key.environment,
+        "rpm_limit": db_key.rpm_limit,
     }
 
 

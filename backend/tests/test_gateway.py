@@ -1231,6 +1231,34 @@ def test_billing_usage_includes_cached_and_reasoning_fields():
     assert "provider_reported_cost" in payload["items"][0]
 
 
+def test_per_key_rpm_limit_returns_429_over_budget():
+    from app.services.rate_limit import rate_limiter
+
+    created = client.post(
+        "/admin/router-api-keys",
+        json={"name": f"rpm-key-{uuid4()}", "rpm_limit": 2},
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["rpm_limit"] == 2
+    key = body["plain_api_key"]
+    rate_limiter.reset(body["name"])  # isolate from any prior counting
+
+    def call():
+        return client.post(
+            "/v1/chat/completions",
+            headers={"Authorization": f"Bearer {key}"},
+            json={"model": "model1", "messages": [{"role": "user", "content": str(uuid4())}]},
+        )
+
+    assert call().status_code == 200          # 1st within budget
+    assert call().status_code == 200          # 2nd within budget
+    blocked = call()                          # 3rd exceeds 2/min
+    assert blocked.status_code == 429
+    assert "RATE_LIMITED" in blocked.json()["detail"]
+    assert "Retry-After" in blocked.headers
+
+
 def test_capacity_fallback_preserves_primary_health(monkeypatch):
     from app import crud, models
     from app.db import SessionLocal

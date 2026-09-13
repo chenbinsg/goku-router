@@ -693,6 +693,7 @@ export const getRouterApiKeys = async (): Promise<RouterApiKey[]> => {
     projectId: item.project_id,
     environment: item.environment,
     quotaRequests: item.quota_requests,
+    rpmLimit: item.rpm_limit,
     requestCount: item.request_count,
     expiresAt: item.expires_at,
     rotatedFromKeyId: item.rotated_from_key_id,
@@ -700,7 +701,7 @@ export const getRouterApiKeys = async (): Promise<RouterApiKey[]> => {
 };
 
 export const createRouterApiKey = async (
-  payload: { name: string; organizationId?: number; projectId?: number; environment?: string; quotaRequests?: number; expiresAt?: string },
+  payload: { name: string; organizationId?: number; projectId?: number; environment?: string; quotaRequests?: number; rpmLimit?: number; expiresAt?: string },
 ): Promise<RouterApiKey> => {
   const response = await adminClient.post('/admin/router-api-keys', {
     name: payload.name,
@@ -708,6 +709,7 @@ export const createRouterApiKey = async (
     project_id: payload.projectId,
     environment: payload.environment,
     quota_requests: payload.quotaRequests,
+    rpm_limit: payload.rpmLimit,
     expires_at: payload.expiresAt,
   });
   return {
@@ -719,6 +721,7 @@ export const createRouterApiKey = async (
     projectId: response.data.project_id,
     environment: response.data.environment,
     quotaRequests: response.data.quota_requests,
+    rpmLimit: response.data.rpm_limit,
     requestCount: response.data.request_count,
     expiresAt: response.data.expires_at,
     rotatedFromKeyId: response.data.rotated_from_key_id,
@@ -734,6 +737,7 @@ export const updateRouterApiKey = async (key: RouterApiKey): Promise<RouterApiKe
     project_id: key.projectId,
     environment: key.environment,
     quota_requests: key.quotaRequests,
+    rpm_limit: key.rpmLimit,
     expires_at: key.expiresAt,
   });
   return {
@@ -745,6 +749,7 @@ export const updateRouterApiKey = async (key: RouterApiKey): Promise<RouterApiKe
     projectId: response.data.project_id,
     environment: response.data.environment,
     quotaRequests: response.data.quota_requests,
+    rpmLimit: response.data.rpm_limit,
     requestCount: response.data.request_count,
     expiresAt: response.data.expires_at,
     rotatedFromKeyId: response.data.rotated_from_key_id,

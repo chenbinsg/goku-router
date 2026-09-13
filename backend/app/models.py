@@ -145,6 +145,7 @@ class RouterApiKey(Base):
     environment = Column(String(64), nullable=True)
     quota_requests = Column(Integer, nullable=True)
     quota_spend_usd = Column(Float, nullable=True)        # v0.3: max cumulative spend
+    rpm_limit = Column(Integer, nullable=True)            # v1.5.31: max requests/min (None = no limit)
     request_count = Column(Integer, nullable=False, default=0)
     spend_usd = Column(Float, nullable=False, default=0.0)  # v0.3: cumulative spend tracker
     expires_at = Column(DateTime, nullable=True)

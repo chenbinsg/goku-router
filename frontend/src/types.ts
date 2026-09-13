@@ -274,6 +274,7 @@ export interface RouterApiKey {
   projectId?: number;
   environment?: string;
   quotaRequests?: number;
+  rpmLimit?: number;
   requestCount?: number;
   expiresAt?: string;
   rotatedFromKeyId?: number;

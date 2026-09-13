@@ -40,7 +40,7 @@ const ApiKeysAdminPage: React.FC = () => {
     fetchKeys();
   }, [t]);
 
-  const handleCreate = async (values: { name: string; organizationId?: string; projectId?: string; environment?: string; quotaRequests?: string; expiresAt?: string }) => {
+  const handleCreate = async (values: { name: string; organizationId?: string; projectId?: string; environment?: string; quotaRequests?: string; rpmLimit?: string; expiresAt?: string }) => {
     try {
       const created = await createRouterApiKey({
         name: values.name,
@@ -48,6 +48,7 @@ const ApiKeysAdminPage: React.FC = () => {
         projectId: values.projectId ? Number(values.projectId) : undefined,
         environment: values.environment || undefined,
         quotaRequests: values.quotaRequests ? Number(values.quotaRequests) : undefined,
+        rpmLimit: values.rpmLimit ? Number(values.rpmLimit) : undefined,
         expiresAt: values.expiresAt || undefined,
       });
       setKeys((current) => [...current, created]);
@@ -113,6 +114,7 @@ const ApiKeysAdminPage: React.FC = () => {
           { title: t('apiKeys.projectId'), dataIndex: 'projectId', key: 'projectId' },
           { title: t('apiKeys.environment'), dataIndex: 'environment', key: 'environment', render: (value?: string) => value || 'N/A' },
           { title: t('apiKeys.quotaRequests'), dataIndex: 'quotaRequests', key: 'quotaRequests' },
+          { title: '每分钟上限(RPM)', dataIndex: 'rpmLimit', key: 'rpmLimit', render: (value?: number) => (value ?? '不限') },
           { title: t('apiKeys.requestCount'), dataIndex: 'requestCount', key: 'requestCount' },
           { title: t('apiKeys.expiresAt'), dataIndex: 'expiresAt', key: 'expiresAt', render: (value?: string) => value || 'N/A' },
           { title: t('common.status'), dataIndex: 'status', key: 'status' },
@@ -171,6 +173,9 @@ const ApiKeysAdminPage: React.FC = () => {
           </Form.Item>
           <Form.Item label={t('apiKeys.quotaRequests')} name="quotaRequests">
             <Input placeholder="1000" />
+          </Form.Item>
+          <Form.Item label="每分钟上限 (RPM)" name="rpmLimit" tooltip="每分钟最多请求数,超出返回 429;留空表示不限速">
+            <Input placeholder="60" />
           </Form.Item>
           <Form.Item label={t('apiKeys.expiresAt')} name="expiresAt">
             <Input placeholder="2026-12-31T23:59:59+09:00" />
