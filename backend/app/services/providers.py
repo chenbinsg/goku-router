@@ -355,6 +355,16 @@ _VLLM_ONLY_EXTRA_KEYS = frozenset({
 })
 
 
+def _supported_params(provider: Provider) -> set[str]:
+    """Parameter names the provider declares it accepts (CSV in the DB column).
+
+    Rows loaded from the DB always carry a value (the column default at minimum),
+    so an empty result means the provider genuinely declares nothing extra.
+    """
+    raw = getattr(provider, "supported_parameters", None) or ""
+    return {name.strip() for name in raw.split(",") if name.strip()}
+
+
 def _execute_openai_compatible_chat_completion(
     provider: Provider,
     model: ModelCatalog,
@@ -382,37 +392,43 @@ def _execute_openai_compatible_chat_completion(
         payload["tools"] = [tool.model_dump() for tool in request.tools]
     if request.response_format is not None:
         payload["response_format"] = request.response_format.model_dump(exclude_none=True)
-    # Pass through vLLM / Qwen3 extra fields (chat_template_kwargs, top_k, etc.),
-    # but only to upstreams that speak the Qwen/vLLM template.  For a plain
-    # OpenAI-compatible provider (e.g. the fail-over target when Qwen is down)
-    # these keys trigger a 400, so strip them rather than let one dialect's
-    # knobs cascade into a total outage.  Judged by _uses_qwen_chat_template so
-    # the guard does not depend on per-provider supported_parameters DB data.
+    # Forward vLLM / Qwen3 extra fields (chat_template_kwargs, top_k, etc.), but
+    # only those the target provider declares it accepts.  Keying this on
+    # per-provider supported_parameters (not on whether the model is Qwen) is
+    # what covers the real failure: an OpenRouter-style gateway that PROXIES a
+    # Qwen model still rejects these knobs with a 400 — sending them there tripped
+    # the breaker and cascaded into "all providers unavailable".
+    supported = _supported_params(provider)
     if request.extra_body:
         extra_body = request.extra_body
-        if not _uses_qwen_chat_template(provider, model):
-            dropped = [k for k in extra_body if k in _VLLM_ONLY_EXTRA_KEYS]
-            if dropped:
-                extra_body = {
-                    k: v for k, v in extra_body.items()
-                    if k not in _VLLM_ONLY_EXTRA_KEYS
-                }
-                logger.warning(
-                    "Stripped vLLM-only extra_body keys %s for non-Qwen provider "
-                    "'%s' (model '%s')",
-                    dropped, provider.name, model.provider_model_name,
-                )
+        dropped = [
+            k for k in extra_body
+            if k in _VLLM_ONLY_EXTRA_KEYS and k not in supported
+        ]
+        if dropped:
+            extra_body = {k: v for k, v in extra_body.items() if k not in dropped}
+            logger.warning(
+                "Stripped unsupported extra_body keys %s for provider '%s' "
+                "(supported_parameters=%s)",
+                dropped, provider.name, sorted(supported),
+            )
         payload.update(extra_body)
 
-    # Qwen models served by any OpenAI-compatible provider need the same chat
-    # template defaults.  In particular, backup nodes must not re-enable thinking
-    # merely because their provider label differs from the primary node.
+    # Qwen chat-template defaults (thinking-off etc.).  Applied when the model
+    # expects the Qwen template AND the provider declares it accepts the knob.
+    # A strict gateway serving a Qwen model omits these from supported_parameters,
+    # so we send a clean payload (a working response beats a 400) instead of the
+    # knobs it would reject.  A real vLLM Qwen node lists them and still gets them.
     if _uses_qwen_chat_template(provider, model):
-        payload.setdefault("top_k", 20)
-        payload.setdefault("top_p", 0.8)
-        payload.setdefault("presence_penalty", 1.5)
-        ctk = payload.setdefault("chat_template_kwargs", {})
-        ctk.setdefault("enable_thinking", False)
+        if "top_k" in supported:
+            payload.setdefault("top_k", 20)
+        if "top_p" in supported:
+            payload.setdefault("top_p", 0.8)
+        if "presence_penalty" in supported:
+            payload.setdefault("presence_penalty", 1.5)
+        if "chat_template_kwargs" in supported:
+            ctk = payload.setdefault("chat_template_kwargs", {})
+            ctk.setdefault("enable_thinking", False)
 
     headers = {
         "Authorization": f"Bearer {api_key}",

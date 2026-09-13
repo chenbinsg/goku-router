@@ -85,12 +85,14 @@ def test_openai_compatible_provider_executes_via_httpx(monkeypatch):
 
 
 def test_qwen_defaults_apply_to_backup_provider_name(monkeypatch):
+    # A real vLLM Qwen node declares it accepts the chat-template knobs.
     provider = Provider(
         name="TOKYO_QWEN",
         adapter_type="openai_compatible",
         status="active",
         health_status="healthy",
         priority=75,
+        supported_parameters="temperature,top_p,max_tokens,stop,tools,tool_choice,response_format,top_k,chat_template_kwargs,presence_penalty",
     )
     model = ModelCatalog(
         model_id="Qwen3.8",
@@ -178,13 +180,14 @@ def test_vllm_extra_body_stripped_for_non_qwen_provider(monkeypatch):
 
 
 def test_vllm_extra_body_preserved_for_qwen_provider(monkeypatch):
-    # A genuine Qwen upstream must keep its chat-template knobs.
+    # A genuine Qwen upstream declares support for the knobs, so they pass through.
     provider = Provider(
         name="TOKYO_QWEN",
         adapter_type="openai_compatible",
         status="active",
         health_status="healthy",
         priority=75,
+        supported_parameters="temperature,top_p,max_tokens,stop,tools,tool_choice,response_format,top_k,chat_template_kwargs",
     )
     model = ModelCatalog(
         model_id="Qwen3.8",
@@ -218,6 +221,56 @@ def test_vllm_extra_body_preserved_for_qwen_provider(monkeypatch):
     # Client-supplied values win over the setdefault Qwen defaults.
     assert captured["json"]["top_k"] == 40
     assert captured["json"]["chat_template_kwargs"] == {"enable_thinking": True}
+
+
+def test_qwen_model_on_strict_gateway_omits_unsupported_knobs(monkeypatch):
+    # Production incident: Qwen3.8 proxied by an OpenRouter-style gateway whose
+    # supported_parameters lacks top_k/chat_template_kwargs.  Sending them 400'd
+    # and cascaded into "all providers unavailable".  The knobs (from both the
+    # Qwen defaults block and the client's extra_body) must be dropped, leaving a
+    # clean payload the gateway accepts.
+    provider = Provider(
+        name="TOKENSTARS_OPENROUTER",
+        adapter_type="openai_compatible",
+        status="active",
+        health_status="healthy",
+        priority=1,
+        supported_parameters="temperature,top_p,max_tokens,stop,tools,tool_choice,response_format",
+    )
+    model = ModelCatalog(
+        model_id="Qwen3.8",
+        provider_id=13,
+        provider_model_name="qwen/qwen3.8",
+        status="active",
+    )
+    request = schemas.ChatCompletionRequest(
+        model="Qwen3.8",
+        messages=[schemas.ChatMessage(role="user", content="Reply OK only.")],
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}, "top_k": 20},
+    )
+    captured = {}
+
+    def fake_post(url, json, headers, timeout):
+        captured["json"] = json
+        return DummyResponse(
+            {
+                "choices": [{"message": {"content": "OK"}}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 1},
+            }
+        )
+
+    monkeypatch.setenv("PROVIDER_TOKENSTARS_OPENROUTER_BASE_URL", "https://example.test/v1")
+    monkeypatch.setenv("PROVIDER_TOKENSTARS_OPENROUTER_API_KEY", "secret-key")
+    monkeypatch.setattr(providers.httpx, "post", fake_post)
+
+    result = providers.execute_chat_completion(provider, model, request)
+
+    assert result.completion == "OK"
+    # None of the Qwen-only knobs may reach a gateway that does not support them.
+    for unsupported in ("top_k", "chat_template_kwargs", "presence_penalty"):
+        assert unsupported not in captured["json"]
+    # Supported params still go through.
+    assert captured["json"]["top_p"] == 0.8  # injected Qwen default, and supported
 
 
 def test_openrouter_provider_converts_system_only_prompt_to_user(monkeypatch):
