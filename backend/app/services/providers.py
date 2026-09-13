@@ -64,6 +64,10 @@ class ProviderExecutionError(Exception):
     pass
 
 
+class ProviderThrottledError(ProviderExecutionError):
+    """Local capacity rejection; does not imply upstream failure."""
+
+
 @dataclass
 class ProviderResult:
     completion: str
@@ -608,7 +612,7 @@ def execute_chat_completion(
         provider_concurrency.acquire(provider.name)
     except ProviderCapacityError as exc:
         circuit_breakers.release(admission)
-        raise ProviderExecutionError(str(exc)) from exc
+        raise ProviderThrottledError(str(exc)) from exc
 
     t0 = time.perf_counter()
     try:

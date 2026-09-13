@@ -14,9 +14,9 @@ replaced could not guarantee two properties the recovery path depends on:
   * Single probe.  When an OPEN breaker cools down, the FIRST caller to acquire
     takes the one probe slot and moves the breaker to HALF_OPEN; every other
     caller is rejected until that probe resolves.  A probe also carries a
-    deadline, so a caller that dies without reporting (crash, killed thread)
-    cannot wedge the breaker in HALF_OPEN forever — the slot is re-offered once
-    the deadline lapses.
+    deadline for accepting a recovery result. An expired probe retains its
+    slot until the caller reports or releases it: expiry cannot cancel an
+    in-flight synchronous upstream request, so reissuing would overlap calls.
 
   * No stale overwrite.  Each OPEN transition bumps a generation counter, and an
     Admission captures the generation it was acquired under.  A late result from
@@ -27,7 +27,7 @@ replaced could not guarantee two properties the recovery path depends on:
 Configuration (via environment variables):
   CB_FAILURE_THRESHOLD  — consecutive failures before OPEN (default: 5)
   CB_RECOVERY_TIMEOUT_S — seconds before OPEN → HALF_OPEN (default: 60)
-  CB_PROBE_TIMEOUT_S    — max seconds a probe may hold the slot (default: 30)
+  CB_PROBE_TIMEOUT_S    — max probe duration accepted as recovery (default: 30)
 """
 from __future__ import annotations
 
@@ -126,10 +126,10 @@ class CircuitBreakerRegistry:
                 return None
 
             # HALF_OPEN: admit exactly one probe at a time.
-            if cb.probe_in_flight and now < cb.probe_deadline:
+            if cb.probe_in_flight:
                 return None
-            # Either no probe has been taken yet, or the previous probe blew past
-            # its deadline without reporting — re-offer the slot.
+            # Only re-offer after the previous caller has actually released its slot.
+            cb.generation += 1
             cb.probe_in_flight = True
             cb.probe_deadline = now + self._probe_timeout
             logger.info(
@@ -150,7 +150,16 @@ class CircuitBreakerRegistry:
                     admission.provider_name, admission.generation, cb.generation,
                 )
                 return
+            if admission.is_probe and time.monotonic() >= cb.probe_deadline:
+                # A late success is insufficient evidence of timely recovery.
+                cb.state = CBState.OPEN
+                cb.opened_at = time.monotonic()
+                cb.generation += 1
+                cb.probe_in_flight = False
+                return
             was_recovering = cb.state != CBState.CLOSED
+            if admission.is_probe:
+                cb.generation += 1
             cb.failure_count = 0
             cb.state = CBState.CLOSED
             cb.probe_in_flight = False
@@ -217,6 +226,7 @@ class CircuitBreakerRegistry:
                 return
             if admission.is_probe and cb.state == CBState.HALF_OPEN:
                 cb.probe_in_flight = False
+                cb.generation += 1
 
     def is_available(self, provider_name: str) -> bool:
         """Advisory, non-mutating check of whether a request could be admitted.
@@ -232,7 +242,7 @@ class CircuitBreakerRegistry:
             if cb.state == CBState.OPEN:
                 return now - cb.opened_at >= self._timeout
             # HALF_OPEN: available only if the single probe slot is free.
-            return not (cb.probe_in_flight and now < cb.probe_deadline)
+            return not cb.probe_in_flight
 
     def get_state(self, provider_name: str) -> CBState:
         with self._lock:

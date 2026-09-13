@@ -1229,3 +1229,31 @@ def test_billing_usage_includes_cached_and_reasoning_fields():
     assert payload["items"][0]["cached_tokens"] >= 0
     assert payload["items"][0]["reasoning_tokens"] >= 0
     assert "provider_reported_cost" in payload["items"][0]
+
+
+def test_capacity_fallback_preserves_primary_health(monkeypatch):
+    from app import crud, models
+    from app.db import SessionLocal
+    from app.services.providers import ProviderThrottledError
+
+    with SessionLocal() as db:
+        primary = db.query(models.Provider).filter_by(name="provider_primary").one()
+        primary.health_status = "healthy"
+        db.commit()
+    execute = crud.execute_chat_completion
+
+    def busy_primary(provider, *args, **kwargs):
+        if provider.name == "provider_primary":
+            raise ProviderThrottledError("local queue full")
+        return execute(provider, *args, **kwargs)
+
+    monkeypatch.setattr(crud, "execute_chat_completion", busy_primary)
+    response = client.post(
+        "/v1/chat/completions", headers=AUTH_HEADERS,
+        json={"model": "model1", "messages": [{"role": "user", "content": str(uuid4())}]},
+    )
+    assert response.status_code == 200
+    assert response.json()["provider"] == "provider_backup"
+    assert response.json()["fallback_used"] is True
+    with SessionLocal() as db:
+        assert db.query(models.Provider).filter_by(name="provider_primary").one().health_status == "healthy"

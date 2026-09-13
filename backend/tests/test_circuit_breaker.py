@@ -109,16 +109,41 @@ def test_stale_failure_does_not_push_cooldown(monkeypatch):
     assert reg.try_acquire("p") is not None  # probe admitted on schedule
 
 
-def test_abandoned_probe_reoffered_after_deadline(monkeypatch):
-    reg, clock = _registry(monkeypatch, threshold=3, recovery=60.0, probe=30.0)
-    _trip(reg, n=3)
-    clock.advance(61.0)
-    first = reg.try_acquire("p")   # takes the probe slot, never reports
-    assert first is not None and first.is_probe
-    assert reg.try_acquire("p") is None  # slot held
-    clock.advance(31.0)            # probe deadline (30s) lapsed
+def test_expired_probe_does_not_overlap_and_late_success_cannot_recover(monkeypatch):
+    reg, clock = _registry(monkeypatch)
+    _trip(reg)
+    clock.advance(61)
+    first = reg.try_acquire("p")
+    clock.advance(31)
+    assert reg.try_acquire("p") is None
+    assert not reg.is_available("p")
+    reg.record_success(first)
+    assert reg.get_state("p") == CBState.OPEN
+    clock.advance(61)
     second = reg.try_acquire("p")
-    assert second is not None and second.is_probe
+    reg.record_success(first)
+    reg.record_failure(first)
+    reg.release(first)
+    assert reg.get_state("p") == CBState.HALF_OPEN
+    assert reg.try_acquire("p") is None
+    reg.record_success(second)
+    assert reg.get_state("p") == CBState.CLOSED
+
+
+def test_released_probe_cannot_overwrite_replacement(monkeypatch):
+    reg, clock = _registry(monkeypatch)
+    _trip(reg)
+    clock.advance(61)
+    first = reg.try_acquire("p")
+    reg.release(first)
+    second = reg.try_acquire("p")
+    assert first != second
+    reg.release(first)
+    reg.record_success(first)
+    reg.record_failure(first)
+    assert reg.try_acquire("p") is None
+    reg.record_success(second)
+    assert reg.get_state("p") == CBState.CLOSED
 
 
 def test_reset_clears_state_and_invalidates_inflight(monkeypatch):
@@ -141,3 +166,14 @@ def test_is_available_is_non_mutating(monkeypatch):
     # try_acquire is what actually transitions to HALF_OPEN.
     reg.try_acquire("p")
     assert reg.get_state("p") == CBState.HALF_OPEN
+
+
+def test_recovery_burst_admits_one_probe(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    reg, clock = _registry(monkeypatch)
+    _trip(reg)
+    clock.advance(61)
+    with ThreadPoolExecutor(max_workers=20) as pool:
+        admissions = list(pool.map(lambda _: reg.try_acquire("p"), range(100)))
+    assert sum(adm is not None for adm in admissions) == 1

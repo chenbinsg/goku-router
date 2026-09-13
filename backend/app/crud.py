@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from . import models, schemas
 from .config import settings
 from .db import Base
-from .services.providers import ProviderExecutionError, ProviderResult, execute_chat_completion
+from .services.providers import ProviderThrottledError, ProviderExecutionError, ProviderResult, execute_chat_completion
 from .services.safety import scan_response
 from .services.secrets import decrypt_secret, encrypt_secret
 
@@ -3304,8 +3304,9 @@ def _execute_routed_chat_completion(
             }
         except ProviderExecutionError as exc:
             # Update provider health status on failed real request
-            provider.health_status = "unhealthy"
-            db.commit()
+            if not isinstance(exc, ProviderThrottledError):
+                provider.health_status = "unhealthy"
+                db.commit()
             last_error = str(exc)
             attempted.append((provider.id, provider.name, last_error))
 
@@ -5101,8 +5102,9 @@ def test_provider_connection(
         result = execute_chat_completion(provider, model, chat_request)
     except ProviderExecutionError as exc:
         # Mark provider unhealthy on failed connection test
-        provider.health_status = "unhealthy"
-        db.commit()
+        if not isinstance(exc, ProviderThrottledError):
+            provider.health_status = "unhealthy"
+            db.commit()
         raise ValueError(str(exc)) from exc
 
     # Mark provider healthy on successful connection test
