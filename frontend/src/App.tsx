@@ -3,6 +3,7 @@ import { Layout, Menu, Segmented, Space, Typography, Button, Avatar, Dropdown } 
 import { Route, Routes, Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import {
   DashboardOutlined,
+  LineChartOutlined,
   MessageOutlined,
   ApiOutlined,
   AppstoreOutlined,
@@ -42,6 +43,7 @@ const BillingAdminPage       = lazy(() => import('./pages/BillingAdminPage'));
 const SecurityAdminPage      = lazy(() => import('./pages/SecurityAdminPage'));
 const LogsAdminPage          = lazy(() => import('./pages/LogsAdminPage'));
 const DashboardAdminPage     = lazy(() => import('./pages/DashboardAdminPage'));
+const TrafficAdminPage       = lazy(() => import('./pages/TrafficAdminPage'));
 const NotificationsAdminPage = lazy(() => import('./pages/NotificationsAdminPage'));
 const ApiKeysAdminPage       = lazy(() => import('./pages/ApiKeysAdminPage'));
 const UsersAdminPage         = lazy(() => import('./pages/UsersAdminPage'));
@@ -142,6 +144,11 @@ const App: React.FC = () => {
       key: 'dashboard',
       icon: <DashboardOutlined />,
       label: <Link to="/admin/dashboard">{t('nav.dashboard')}</Link>,
+    },
+    {
+      key: 'traffic',
+      icon: <LineChartOutlined />,
+      label: <Link to="/admin/traffic">流量监控</Link>,
     },
     // ── Playground (collapsible submenu) ──────────────────────────────────────
     {
@@ -323,6 +330,7 @@ const App: React.FC = () => {
               <Route path="/v1/embeddings"        element={<EmbeddingsPage />} />
               <Route path="/v1/models"            element={<ModelsListPage />} />
               <Route path="/admin/dashboard"      element={<RequireAuth><DashboardAdminPage /></RequireAuth>} />
+              <Route path="/admin/traffic"        element={<RequireAuth><TrafficAdminPage /></RequireAuth>} />
               <Route path="/admin/models"         element={<RequireAuth><ModelsAdminPage /></RequireAuth>} />
               <Route path="/admin/providers"      element={<RequireAuth><ProvidersAdminPage /></RequireAuth>} />
               <Route path="/admin/routing"        element={<RequireAuth><RoutingAdminPage /></RequireAuth>} />

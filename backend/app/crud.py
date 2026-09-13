@@ -4722,6 +4722,112 @@ def _build_route_scoring_drift_summary(
     return items[:10]
 
 
+def get_traffic_timeseries(
+    db: Session,
+    hours: int = 24,
+    bucket_minutes: int | None = None,
+    organization_id: int | None = None,
+    project_id: int | None = None,
+    environment: str | None = None,
+):
+    """Request traffic bucketed over time, for the traffic dashboard chart.
+
+    Returns fixed-width time buckets covering the last ``hours`` hours (so the
+    chart's x-axis is continuous even across idle stretches).  Each bucket
+    carries total / success (2xx-3xx) / error (>=400) request counts plus token
+    and latency aggregates.  If ``bucket_minutes`` is not given it is chosen from
+    the window so the series stays ~60-170 points wide.
+    """
+    from datetime import timedelta
+
+    ensure_schema(db)
+    hours = max(1, min(int(hours), 24 * 30))  # clamp to [1h, 30d]
+    if bucket_minutes is None or bucket_minutes <= 0:
+        # Aim for a readable number of points regardless of window length.
+        if hours <= 2:
+            bucket_minutes = 1
+        elif hours <= 12:
+            bucket_minutes = 5
+        elif hours <= 48:
+            bucket_minutes = 15
+        elif hours <= 24 * 7:
+            bucket_minutes = 60
+        else:
+            bucket_minutes = 360
+    bucket_minutes = max(1, int(bucket_minutes))
+    bucket_seconds = bucket_minutes * 60
+
+    now = datetime.utcnow()
+    window_start = now - timedelta(hours=hours)
+    # Align the first bucket to a bucket boundary so buckets are stable across polls.
+    start_epoch = int(window_start.timestamp())
+    start_epoch -= start_epoch % bucket_seconds
+    bucket_count = int((now.timestamp() - start_epoch) // bucket_seconds) + 1
+
+    points = [
+        {
+            "ts": start_epoch + i * bucket_seconds,
+            "total": 0, "success": 0, "error": 0, "cache_hit": 0,
+            "tokens": 0, "_latency_sum": 0.0,
+        }
+        for i in range(bucket_count)
+    ]
+
+    rows = (
+        _filter_request_logs_query(
+            db=db,
+            organization_id=organization_id,
+            project_id=project_id,
+            environment=environment,
+        )
+        .filter(models.RequestLog.created_at >= window_start)
+        .with_entities(
+            models.RequestLog.created_at,
+            models.RequestLog.status_code,
+            models.RequestLog.prompt_tokens,
+            models.RequestLog.completion_tokens,
+            models.RequestLog.latency,
+            models.RequestLog.cache_hit,
+        )
+        .all()
+    )
+
+    for created_at, status_code, prompt_tokens, completion_tokens, latency, cache_hit in rows:
+        if created_at is None:
+            continue
+        idx = int((created_at.timestamp() - start_epoch) // bucket_seconds)
+        if idx < 0 or idx >= bucket_count:
+            continue
+        pt = points[idx]
+        pt["total"] += 1
+        if status_code is not None and status_code >= 400:
+            pt["error"] += 1
+        else:
+            pt["success"] += 1
+        if cache_hit:
+            pt["cache_hit"] += 1
+        pt["tokens"] += (prompt_tokens or 0) + (completion_tokens or 0)
+        pt["_latency_sum"] += latency or 0.0
+
+    for pt in points:
+        pt["avg_latency_ms"] = round(pt["_latency_sum"] / pt["total"], 1) if pt["total"] else 0.0
+        del pt["_latency_sum"]
+
+    total_requests = sum(pt["total"] for pt in points)
+    total_errors = sum(pt["error"] for pt in points)
+    return {
+        "hours": hours,
+        "bucket_minutes": bucket_minutes,
+        "start": start_epoch,
+        "end": int(now.timestamp()),
+        "total_requests": total_requests,
+        "total_errors": total_errors,
+        "error_rate": round(total_errors / total_requests, 4) if total_requests else 0.0,
+        "peak_rpm": round(max((pt["total"] for pt in points), default=0) / bucket_minutes, 2),
+        "points": points,
+    }
+
+
 def get_analytics_summary(
     db: Session,
     organization_id: int | None = None,

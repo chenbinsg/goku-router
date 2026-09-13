@@ -934,6 +934,22 @@ def get_analytics_summary(
     return crud.get_analytics_summary(db=db, organization_id=organization_id, project_id=project_id, environment=environment)
 
 
+@app.get("/admin/analytics/traffic")
+def get_traffic_timeseries(
+    hours: int = 24,
+    bucket_minutes: int | None = None,
+    organization_id: int | None = None,
+    project_id: int | None = None,
+    environment: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """Time-bucketed request traffic (total/success/error) for the traffic chart."""
+    return crud.get_traffic_timeseries(
+        db=db, hours=hours, bucket_minutes=bucket_minutes,
+        organization_id=organization_id, project_id=project_id, environment=environment,
+    )
+
+
 @app.get("/admin/analytics/export", response_model=schemas.DownloadArtifactResponse)
 def export_analytics_summary(
     organization_id: int | None = None,

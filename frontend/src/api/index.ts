@@ -1454,3 +1454,45 @@ export const changeMyPassword = async (payload: {
 }): Promise<void> => {
   await adminClient.put('/admin/users/me/password', payload);
 };
+
+// ── Traffic timeseries (request-volume dashboard) ──────────────────────────────
+export interface TrafficPoint {
+  ts: number;          // bucket start, unix seconds (UTC)
+  total: number;
+  success: number;
+  error: number;
+  cache_hit: number;
+  tokens: number;
+  avg_latency_ms: number;
+}
+
+export interface TrafficTimeseries {
+  hours: number;
+  bucket_minutes: number;
+  start: number;
+  end: number;
+  total_requests: number;
+  total_errors: number;
+  error_rate: number;
+  peak_rpm: number;
+  points: TrafficPoint[];
+}
+
+export const getTrafficTimeseries = async (params?: {
+  hours?: number;
+  bucketMinutes?: number;
+  organizationId?: number;
+  projectId?: number;
+  environment?: string;
+}): Promise<TrafficTimeseries> => {
+  const response = await adminClient.get('/admin/analytics/traffic', {
+    params: {
+      hours: params?.hours,
+      bucket_minutes: params?.bucketMinutes,
+      organization_id: params?.organizationId,
+      project_id: params?.projectId,
+      environment: params?.environment,
+    },
+  });
+  return response.data as TrafficTimeseries;
+};
