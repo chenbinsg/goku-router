@@ -580,8 +580,12 @@ def execute_chat_completion(
     if provider.status != "active":
         raise ProviderExecutionError(f"Provider {provider.name} is disabled (status={provider.status})")
 
-    # Circuit breaker check (v0.4)
-    if not circuit_breakers.is_available(provider.name):
+    # Circuit breaker admission (v0.4). try_acquire atomically grants the single
+    # HALF_OPEN probe slot, so a recovering upstream is not stampeded by a burst
+    # of concurrent requests. The Admission token carries the generation this
+    # call was admitted under so a stale result cannot flip a newer state.
+    admission = circuit_breakers.try_acquire(provider.name)
+    if admission is None:
         raise ProviderExecutionError(
             f"Provider {provider.name} circuit breaker is OPEN — skipping to avoid cascade failures"
         )
@@ -591,7 +595,7 @@ def execute_chat_completion(
     # Test-only escape hatch for forcing failures in integration tests
     fail_marker = f"[fail:{provider.name}]"
     if fail_marker in prompt:
-        circuit_breakers.record_failure(provider.name)
+        circuit_breakers.record_failure(admission)
         raise ProviderExecutionError(f"Provider {provider.name} failed for request (test marker)")
 
     t0 = time.perf_counter()
@@ -630,9 +634,15 @@ def execute_chat_completion(
             alpha,
         )
 
-        circuit_breakers.record_success(provider.name)
+        circuit_breakers.record_success(admission)
         return result
 
     except ProviderExecutionError:
-        circuit_breakers.record_failure(provider.name)
+        circuit_breakers.record_failure(admission)
+        raise
+    except BaseException:
+        # Any other failure (timeout, cancellation, unexpected error) must also
+        # release the admission — otherwise a crashing probe would hold the
+        # single HALF_OPEN slot until its deadline and stall recovery.
+        circuit_breakers.record_failure(admission)
         raise
