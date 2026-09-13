@@ -126,6 +126,100 @@ def test_qwen_defaults_apply_to_backup_provider_name(monkeypatch):
     assert captured["json"]["chat_template_kwargs"] == {"enable_thinking": False}
 
 
+def test_vllm_extra_body_stripped_for_non_qwen_provider(monkeypatch):
+    # Qwen down → fail over to a plain OpenAI provider.  The client's Qwen
+    # extra_body must not be forwarded, or OpenAI returns 400 and the whole
+    # candidate set is marked unavailable.
+    provider = Provider(
+        name="openai_backup",
+        adapter_type="openai_compatible",
+        status="active",
+        health_status="healthy",
+        priority=10,
+    )
+    model = ModelCatalog(
+        model_id="gpt-4.1-mini",
+        provider_id=3,
+        provider_model_name="gpt-4.1-mini",
+        status="active",
+    )
+    request = schemas.ChatCompletionRequest(
+        model="gpt-4.1-mini",
+        messages=[schemas.ChatMessage(role="user", content="Reply OK only.")],
+        extra_body={
+            "chat_template_kwargs": {"enable_thinking": False},
+            "top_k": 20,
+            "repetition_penalty": 1.05,
+            "user_tag": "keep-me",  # non-vLLM extra must survive
+        },
+    )
+    captured = {}
+
+    def fake_post(url, json, headers, timeout):
+        captured["json"] = json
+        return DummyResponse(
+            {
+                "choices": [{"message": {"content": "OK"}}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 1},
+            }
+        )
+
+    monkeypatch.setenv("PROVIDER_OPENAI_BACKUP_BASE_URL", "https://example.test/v1")
+    monkeypatch.setenv("PROVIDER_OPENAI_BACKUP_API_KEY", "secret-key")
+    monkeypatch.setattr(providers.httpx, "post", fake_post)
+
+    result = providers.execute_chat_completion(provider, model, request)
+
+    assert result.completion == "OK"
+    assert "chat_template_kwargs" not in captured["json"]
+    assert "top_k" not in captured["json"]
+    assert "repetition_penalty" not in captured["json"]
+    assert captured["json"]["user_tag"] == "keep-me"
+
+
+def test_vllm_extra_body_preserved_for_qwen_provider(monkeypatch):
+    # A genuine Qwen upstream must keep its chat-template knobs.
+    provider = Provider(
+        name="TOKYO_QWEN",
+        adapter_type="openai_compatible",
+        status="active",
+        health_status="healthy",
+        priority=75,
+    )
+    model = ModelCatalog(
+        model_id="Qwen3.8",
+        provider_id=2,
+        provider_model_name="Qwen/Qwen3.8-27B-FP8",
+        status="active",
+    )
+    request = schemas.ChatCompletionRequest(
+        model="Qwen3.8",
+        messages=[schemas.ChatMessage(role="user", content="Reply OK only.")],
+        extra_body={"top_k": 40, "chat_template_kwargs": {"enable_thinking": True}},
+    )
+    captured = {}
+
+    def fake_post(url, json, headers, timeout):
+        captured["json"] = json
+        return DummyResponse(
+            {
+                "choices": [{"message": {"content": "OK"}}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 1},
+            }
+        )
+
+    monkeypatch.setenv("PROVIDER_TOKYO_QWEN_BASE_URL", "https://example.test/v1")
+    monkeypatch.setenv("PROVIDER_TOKYO_QWEN_API_KEY", "secret-key")
+    monkeypatch.setattr(providers.httpx, "post", fake_post)
+
+    result = providers.execute_chat_completion(provider, model, request)
+
+    assert result.completion == "OK"
+    # Client-supplied values win over the setdefault Qwen defaults.
+    assert captured["json"]["top_k"] == 40
+    assert captured["json"]["chat_template_kwargs"] == {"enable_thinking": True}
+
+
 def test_openrouter_provider_converts_system_only_prompt_to_user(monkeypatch):
     provider = Provider(
         name="openrouter",

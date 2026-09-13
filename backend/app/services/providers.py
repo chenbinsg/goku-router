@@ -332,6 +332,24 @@ def _emit_call_log(record: dict[str, Any]) -> None:
     # buffered), so without flushing these lines sit in the buffer and appear late
     # or get lost on crash — while uvicorn's own logs (which flush) show normally.
     print(json.dumps(line, ensure_ascii=False, default=str), flush=True)
+# vLLM / Qwen chat-template extensions that strict OpenAI-compatible backends
+# (OpenAI itself, most hosted gateways) reject with HTTP 400.  They must only be
+# forwarded to upstreams that actually run the Qwen/vLLM chat template.  Sending
+# them to a plain OpenAI provider during fail-over — because the client's
+# extra_body was passed through unconditionally — is what turned a single Qwen
+# outage into a false "all providers unavailable": the 400 counted as a failure,
+# the backup got the same bad payload, and every candidate was marked down.
+_VLLM_ONLY_EXTRA_KEYS = frozenset({
+    "chat_template_kwargs",
+    "top_k",
+    "repetition_penalty",
+    "min_p",
+    "top_a",
+    "enable_thinking",
+    "use_beam_search",
+})
+
+
 def _execute_openai_compatible_chat_completion(
     provider: Provider,
     model: ModelCatalog,
@@ -359,9 +377,27 @@ def _execute_openai_compatible_chat_completion(
         payload["tools"] = [tool.model_dump() for tool in request.tools]
     if request.response_format is not None:
         payload["response_format"] = request.response_format.model_dump(exclude_none=True)
-    # Pass through vLLM / Qwen3 extra fields (chat_template_kwargs, top_k, etc.)
+    # Pass through vLLM / Qwen3 extra fields (chat_template_kwargs, top_k, etc.),
+    # but only to upstreams that speak the Qwen/vLLM template.  For a plain
+    # OpenAI-compatible provider (e.g. the fail-over target when Qwen is down)
+    # these keys trigger a 400, so strip them rather than let one dialect's
+    # knobs cascade into a total outage.  Judged by _uses_qwen_chat_template so
+    # the guard does not depend on per-provider supported_parameters DB data.
     if request.extra_body:
-        payload.update(request.extra_body)
+        extra_body = request.extra_body
+        if not _uses_qwen_chat_template(provider, model):
+            dropped = [k for k in extra_body if k in _VLLM_ONLY_EXTRA_KEYS]
+            if dropped:
+                extra_body = {
+                    k: v for k, v in extra_body.items()
+                    if k not in _VLLM_ONLY_EXTRA_KEYS
+                }
+                logger.warning(
+                    "Stripped vLLM-only extra_body keys %s for non-Qwen provider "
+                    "'%s' (model '%s')",
+                    dropped, provider.name, model.provider_model_name,
+                )
+        payload.update(extra_body)
 
     # Qwen models served by any OpenAI-compatible provider need the same chat
     # template defaults.  In particular, backup nodes must not re-enable thinking
