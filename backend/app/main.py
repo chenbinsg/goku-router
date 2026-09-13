@@ -729,6 +729,17 @@ def rotate_router_api_key(key_id: int, payload: schemas.RouterApiKeyRotateReques
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@app.delete("/admin/router-api-keys/{key_id}")
+def delete_router_api_key(key_id: int, db: Session = Depends(get_db)):
+    try:
+        crud.delete_router_api_key(db=db, key_id=key_id)
+    except ValueError as exc:
+        detail = str(exc)
+        status = 409 if detail.startswith("CANNOT_DELETE_ACTIVE_KEY") else 404
+        raise HTTPException(status_code=status, detail=detail) from exc
+    return {"id": key_id, "deleted": True}
+
+
 @app.get("/admin/organizations", response_model=list[schemas.OrganizationItem])
 def list_organizations(db: Session = Depends(get_db)):
     return crud.list_organizations(db=db)

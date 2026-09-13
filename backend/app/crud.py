@@ -4043,6 +4043,29 @@ def update_router_api_key(db: Session, key_id: int, update: schemas.RouterApiKey
     raise ValueError(f"INVALID_ROUTER_API_KEY: {key_id}")
 
 
+def delete_router_api_key(db: Session, key_id: int) -> None:
+    """Permanently delete a router API key.
+
+    Refuses to delete an ``active`` key — deactivate it first. This makes delete
+    a deliberate two-step for live keys (deactivate is reversible; delete is not)
+    while still allowing cleanup of inactive/rotated ones. Historical
+    request_logs reference the key by label string, not by FK, so they are
+    unaffected.
+    """
+    ensure_schema(db)
+    db_key = db.query(models.RouterApiKey).filter(models.RouterApiKey.id == key_id).first()
+    if db_key is None:
+        raise ValueError(f"INVALID_ROUTER_API_KEY: {key_id}")
+    if db_key.status == "active":
+        raise ValueError(
+            "CANNOT_DELETE_ACTIVE_KEY: deactivate the key before deleting it"
+        )
+    name = db_key.name
+    db.delete(db_key)
+    _record_audit_log(db, "router_api_key_deleted", f"Deleted API key {name}")
+    db.commit()
+
+
 def rotate_router_api_key(db: Session, key_id: int, payload: schemas.RouterApiKeyRotateRequest):
     ensure_schema(db)
     existing = db.query(models.RouterApiKey).filter(models.RouterApiKey.id == key_id).first()

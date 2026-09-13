@@ -781,6 +781,10 @@ export const rotateRouterApiKey = async (
   };
 };
 
+export const deleteRouterApiKey = async (id: number): Promise<void> => {
+  await adminClient.delete(`/admin/router-api-keys/${id}`);
+};
+
 export const getSecurityLogs = async (): Promise<SecurityLog[]> => {
   const response = await adminClient.get('/admin/audit-logs');
   return response.data.map((item: any) => ({

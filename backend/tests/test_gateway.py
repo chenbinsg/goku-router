@@ -1259,6 +1259,30 @@ def test_per_key_rpm_limit_returns_429_over_budget():
     assert "Retry-After" in blocked.headers
 
 
+def test_delete_router_api_key_refuses_active_then_allows_inactive():
+    created = client.post("/admin/router-api-keys", json={"name": f"del-key-{uuid4()}"})
+    assert created.status_code == 200
+    key_id = created.json()["id"]
+
+    # Active key cannot be deleted.
+    blocked = client.delete(f"/admin/router-api-keys/{key_id}")
+    assert blocked.status_code == 409
+    assert "CANNOT_DELETE_ACTIVE_KEY" in blocked.json()["detail"]
+
+    # Deactivate, then delete succeeds.
+    client.put(f"/admin/router-api-keys/{key_id}", json={"status": "inactive"})
+    deleted = client.delete(f"/admin/router-api-keys/{key_id}")
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted"] is True
+
+    # Gone from the listing.
+    listed = client.get("/admin/router-api-keys").json()
+    assert all(item["id"] != key_id for item in listed)
+
+    # Deleting a non-existent key is a 404.
+    assert client.delete(f"/admin/router-api-keys/{key_id}").status_code == 404
+
+
 def test_capacity_fallback_preserves_primary_health(monkeypatch):
     from app import crud, models
     from app.db import SessionLocal

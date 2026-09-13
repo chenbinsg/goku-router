@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Button, Card, Form, Input, Modal, Space, Table, Typography, message } from 'antd';
+import { Alert, Button, Card, Form, Input, Modal, Popconfirm, Space, Table, Tag, Typography, message } from 'antd';
 
-import { createRouterApiKey, getOrganizations, getProjects, getRouterApiKeys, rotateRouterApiKey, updateRouterApiKey } from '../api';
+import { createRouterApiKey, deleteRouterApiKey, getOrganizations, getProjects, getRouterApiKeys, rotateRouterApiKey, updateRouterApiKey } from '../api';
 import { useI18n } from '../i18n';
 import { Organization, Project, RouterApiKey } from '../types';
 
@@ -72,6 +72,17 @@ const ApiKeysAdminPage: React.FC = () => {
     }
   };
 
+  const handleDelete = async (record: RouterApiKey) => {
+    try {
+      await deleteRouterApiKey(record.id);
+      setKeys((current) => current.filter((item) => item.id !== record.id));
+      message.success('已删除');
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || '';
+      message.error(detail.includes('CANNOT_DELETE_ACTIVE_KEY') ? '请先停用该 Key 再删除' : '删除失败');
+    }
+  };
+
   const handleRotate = async (values: { name?: string; quotaRequests?: string; expiresAt?: string }) => {
     if (!rotatingKey) {
       return;
@@ -117,7 +128,17 @@ const ApiKeysAdminPage: React.FC = () => {
           { title: '每分钟上限(RPM)', dataIndex: 'rpmLimit', key: 'rpmLimit', render: (value?: number) => (value ?? '不限') },
           { title: t('apiKeys.requestCount'), dataIndex: 'requestCount', key: 'requestCount' },
           { title: t('apiKeys.expiresAt'), dataIndex: 'expiresAt', key: 'expiresAt', render: (value?: string) => value || 'N/A' },
-          { title: t('common.status'), dataIndex: 'status', key: 'status' },
+          {
+            title: t('common.status'),
+            dataIndex: 'status',
+            key: 'status',
+            sorter: (a: RouterApiKey, b: RouterApiKey) => a.status.localeCompare(b.status),
+            defaultSortOrder: 'ascend' as const,  // 'active' sorts before 'inactive'/'rotated'
+            render: (value: string) => {
+              const color = value === 'active' ? 'green' : value === 'rotated' ? 'gold' : 'default';
+              return <Tag color={color}>{value}</Tag>;
+            },
+          },
           {
             title: t('common.actions'),
             key: 'actions',
@@ -140,6 +161,22 @@ const ApiKeysAdminPage: React.FC = () => {
                 >
                   {t('apiKeys.rotate')}
                 </Button>
+                {record.status === 'active' ? (
+                  <Button type="link" danger disabled title="请先停用该 Key 再删除">
+                    删除
+                  </Button>
+                ) : (
+                  <Popconfirm
+                    title="删除该 API Key?"
+                    description="此操作不可撤销。历史日志不受影响。"
+                    okText="删除"
+                    okButtonProps={{ danger: true }}
+                    cancelText="取消"
+                    onConfirm={() => handleDelete(record)}
+                  >
+                    <Button type="link" danger>删除</Button>
+                  </Popconfirm>
+                )}
               </Space>
             ),
           },
