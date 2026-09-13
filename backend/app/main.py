@@ -18,6 +18,7 @@ from .config import get_allowed_router_api_keys, settings
 from .logging_config import setup_logging
 from .db import SessionLocal, engine
 from .services.circuit_breaker import circuit_breakers
+from .services.concurrency import provider_concurrency
 from .services.scheduler import start_scheduler, stop_scheduler
 from .services.secrets import SecretKeyMissing
 from .services.auth import (
@@ -955,6 +956,19 @@ def reset_circuit_breaker(provider_name: str):
     """Manually reset a tripped circuit breaker."""
     circuit_breakers.reset(provider_name)
     return {"provider": provider_name, "state": "closed", "reset": True}
+
+
+@app.get("/admin/provider-concurrency")
+def list_provider_concurrency():
+    """Return per-provider concurrency-limiter state (active/queued/rejected)."""
+    return provider_concurrency.get_all_stats()
+
+
+@app.post("/admin/provider-concurrency/reload")
+def reload_provider_concurrency(provider_name: str | None = None):
+    """Re-read concurrency limits from the environment without a restart."""
+    provider_concurrency.reload(provider_name)
+    return {"reloaded": provider_name or "all"}
 
 
 # ── Feedback endpoint (v0.7 foundation) ──────────────────────────────────────

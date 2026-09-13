@@ -202,6 +202,22 @@ class CircuitBreakerRegistry:
             # state == OPEN with a matching generation should not occur (no
             # admissions are handed out while OPEN); nothing to do if it does.
 
+    def release(self, admission: Admission) -> None:
+        """Return an admission without recording an outcome.
+
+        Used when the caller never actually reached the upstream (for example it
+        was throttled by the concurrency limiter): a capacity rejection is not
+        evidence about the upstream's health, so it must count as neither success
+        nor failure.  If the admission held the HALF_OPEN probe slot, free it so
+        the next caller can probe.
+        """
+        with self._lock:
+            cb = self._get(admission.provider_name)
+            if admission.generation != cb.generation:
+                return
+            if admission.is_probe and cb.state == CBState.HALF_OPEN:
+                cb.probe_in_flight = False
+
     def is_available(self, provider_name: str) -> bool:
         """Advisory, non-mutating check of whether a request could be admitted.
 

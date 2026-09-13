@@ -172,6 +172,46 @@ def provider_env_key(provider_name: str, suffix: str) -> str:
     return f"PROVIDER_{normalized}_{suffix}"
 
 
+def _resolve_env(key: str) -> str | None:
+    """Read an env key from the process environment, falling back to .env."""
+    value = os.getenv(key)
+    if value is None:
+        value = _ENV_VALUES.get(key)
+    return value
+
+
+def get_provider_int_setting(
+    provider_name: str, suffix: str, default: int, global_key: str
+) -> int:
+    """Resolve an integer provider setting.
+
+    Precedence: the per-provider env key (``PROVIDER_<NAME>_<SUFFIX>``) wins,
+    then a process-wide default (``global_key``), then the hard-coded default.
+    A blank or unparseable value falls through to the next source.
+    """
+    for key in (provider_env_key(provider_name, suffix), global_key):
+        raw = _resolve_env(key)
+        if raw is not None and raw.strip() != "":
+            try:
+                return int(raw.strip())
+            except ValueError:
+                continue
+    return default
+
+
+def get_provider_float_setting(
+    provider_name: str, suffix: str, default: float, global_key: str
+) -> float:
+    for key in (provider_env_key(provider_name, suffix), global_key):
+        raw = _resolve_env(key)
+        if raw is not None and raw.strip() != "":
+            try:
+                return float(raw.strip())
+            except ValueError:
+                continue
+    return default
+
+
 def get_provider_runtime_config(provider_name: str) -> dict[str, str | None]:
     base_url_key = provider_env_key(provider_name, "BASE_URL")
     api_key_key = provider_env_key(provider_name, "API_KEY")

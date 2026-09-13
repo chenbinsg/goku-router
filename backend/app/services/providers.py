@@ -26,6 +26,7 @@ from ..config import get_provider_runtime_config, settings
 from ..models import ModelCatalog, Provider
 from .token_counter import count_messages_tokens, count_tokens
 from .circuit_breaker import circuit_breakers
+from .concurrency import provider_concurrency, ProviderCapacityError
 
 logger = logging.getLogger(__name__)
 
@@ -598,6 +599,17 @@ def execute_chat_completion(
         circuit_breakers.record_failure(admission)
         raise ProviderExecutionError(f"Provider {provider.name} failed for request (test marker)")
 
+    # Concurrency limiting (v1.6, proactive overload protection). Reserve a slot
+    # before touching the upstream. If the provider is saturated, release the
+    # circuit breaker admission WITHOUT recording an outcome — a local throttle is
+    # not evidence about upstream health — and surface a capacity error so the
+    # routing loop fails over to the next candidate.
+    try:
+        provider_concurrency.acquire(provider.name)
+    except ProviderCapacityError as exc:
+        circuit_breakers.release(admission)
+        raise ProviderExecutionError(str(exc)) from exc
+
     t0 = time.perf_counter()
     try:
         if provider.adapter_type == "mock":
@@ -646,3 +658,6 @@ def execute_chat_completion(
         # single HALF_OPEN slot until its deadline and stall recovery.
         circuit_breakers.record_failure(admission)
         raise
+    finally:
+        # Always free the concurrency slot, whatever the outcome.
+        provider_concurrency.release(provider.name)
