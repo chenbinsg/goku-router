@@ -68,7 +68,7 @@ const LoginPage: React.FC = () => {
       <style>{rollingKeyframes}</style>
       {/* Rolling monkey */}
       <img
-        src="/logo.png"
+        src={`${import.meta.env.BASE_URL}logo.png`}
         alt=""
         style={{
           position: 'fixed',
@@ -93,7 +93,7 @@ const LoginPage: React.FC = () => {
         <Space direction="vertical" size={24} style={{ width: '100%' }}>
           <div style={{ textAlign: 'center' }}>
             <img
-              src="/logo.png"
+              src={`${import.meta.env.BASE_URL}logo.png`}
               alt="Goku-Router"
               style={{ width: 220, objectFit: 'contain', marginBottom: 8 }}
             />

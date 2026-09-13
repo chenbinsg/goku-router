@@ -1,5 +1,5 @@
 import React, { Suspense, lazy } from 'react';
-import { Layout, Menu, Segmented, Space, Typography, Button, Avatar, Dropdown } from 'antd';
+import { Layout, Menu, Segmented, Space, Typography, Button, Avatar, Dropdown, theme } from 'antd';
 import { Route, Routes, Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import {
   DashboardOutlined,
@@ -84,6 +84,7 @@ const PATH_TO_KEY: Record<string, [string, string]> = {
 };
 
 const App: React.FC = () => {
+  const { token: { colorBorderSecondary } } = theme.useToken();
   const { locale, setLocale, t } = useI18n();
   const navigate = useNavigate();
   const location = useLocation();
@@ -285,8 +286,8 @@ const App: React.FC = () => {
     <Layout style={{ minHeight: '100vh' }}>
       <Sider width={220} style={{ overflow: 'auto', height: '100vh', position: 'fixed', left: 0, top: 0, bottom: 0 }}>
         {/* Logo */}
-        <div style={{ padding: '14px 16px', borderBottom: '1px solid #2a2a3e', textAlign: 'center' }}>
-          <img src="/logo.png" alt="Goku-Router" style={{ width: '100%', maxWidth: 160, objectFit: 'contain' }} />
+        <div style={{ height: 72, boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'flex-start', paddingLeft: 8, background: '#fff', borderBottom: `1px solid ${colorBorderSecondary}`, overflow: 'hidden', flexShrink: 0 }}>
+          <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Goku-Router" width={131} height={56} style={{ objectFit: 'contain', display: 'block' }} />
         </div>
 
         <Menu
@@ -300,7 +301,7 @@ const App: React.FC = () => {
       </Sider>
 
       <Layout style={{ marginLeft: 220 }}>
-        <Header style={{ background: '#fff', padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 16, position: 'sticky', top: 0, zIndex: 10, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
+        <Header style={{ background: '#fff', height: 72, borderBottom: `1px solid ${colorBorderSecondary}`, padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 16, position: 'sticky', top: 0, zIndex: 10 }}>
           <Space size={12}>
             <Typography.Text style={{ color: '#666' }}>{t('header.language')}</Typography.Text>
             <Segmented
