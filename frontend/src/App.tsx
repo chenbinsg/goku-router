@@ -63,6 +63,7 @@ const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 // Map route path → [itemKey, parentGroupKey]
 const PATH_TO_KEY: Record<string, [string, string]> = {
   '/admin/dashboard':     ['dashboard',  ''],
+  '/admin/traffic':       ['traffic',    ''],
   '/v1/chat/completions': ['chat',       'grp-playground'],
   '/v1/embeddings':       ['embeddings', 'grp-playground'],
   '/v1/models':           ['models-list','grp-playground'],
