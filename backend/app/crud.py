@@ -359,8 +359,12 @@ def ensure_schema(db: Session, *, force: bool = False):
     # per environment; the marker column makes this idempotent across restarts.
     if "cache_purged_20260802" not in table_columns.get("prompt_cache_entries", set()):
         try:
-            db.execute(text("DELETE FROM prompt_cache_entries"))
+            # Add the marker before deleting. MySQL DDL implicitly commits, even
+            # when the following ALTER is denied. The old order (DELETE, ALTER)
+            # could therefore commit the purge and then fail to add the marker,
+            # causing every restart to purge the cache again.
             db.execute(text("ALTER TABLE prompt_cache_entries ADD COLUMN cache_purged_20260802 BOOLEAN DEFAULT 1"))
+            db.execute(text("DELETE FROM prompt_cache_entries"))
             changed = True
         except Exception:
             db.rollback()

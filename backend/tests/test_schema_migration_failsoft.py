@@ -78,3 +78,23 @@ def test_migrations_are_individually_guarded():
         "调用它的端点同时 500（含业务链路 /v1/models）"
     )
     assert "db.rollback()" in loop, "失败后必须回滚，否则会话留在坏事务里"
+
+
+def test_cache_is_not_deleted_when_marker_alter_is_denied(db, monkeypatch):
+    """无 ALTER 权限时不能先清缓存；MySQL DDL 会隐式提交前面的 DELETE。"""
+    real_execute = db.execute
+    statements: list[str] = []
+
+    def deny_marker_alter(stmt, *args, **kwargs):
+        sql = str(stmt)
+        statements.append(sql)
+        if "ADD COLUMN cache_purged_20260802" in sql:
+            raise RuntimeError("simulated ALTER denied")
+        return real_execute(stmt, *args, **kwargs)
+
+    monkeypatch.setattr(db, "execute", deny_marker_alter)
+    crud.reset_schema_cache()
+    crud.ensure_schema(db)
+
+    assert any("ADD COLUMN cache_purged_20260802" in sql for sql in statements)
+    assert not any(sql.startswith("DELETE FROM prompt_cache_entries") for sql in statements)
